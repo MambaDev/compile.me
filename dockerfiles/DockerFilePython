@@ -1,0 +1,9 @@
+############################################################
+# Dockerfile to build sandbox for executing user code
+# Based on Ubuntu
+############################################################
+
+FROM python:3.8-alpine
+
+RUN apk --update add sudo bc
+
