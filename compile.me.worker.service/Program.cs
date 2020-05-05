@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using compile.me.service;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace compile.me.worker.service
 {
@@ -13,6 +16,13 @@ namespace compile.me.worker.service
     {
         public static void Main(string[] args)
         {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .Enrich.FromLogContext()
+                .WriteTo.Console()
+                .CreateLogger();
+
             CreateHostBuilder(args).Build().Run();
         }
 
@@ -29,6 +39,7 @@ namespace compile.me.worker.service
                     builder.AddJsonFile($"appsettings.{context.HostingEnvironment.EnvironmentName}.json",
                         optional: true, reloadOnChange: true);
                 })
-                .ConfigureServices((hostContext, services) => { services.AddHostedService<CompilerService>(); });
+                .ConfigureServices((hostContext, services) => { services.AddHostedService<CompilerService>(); })
+                .UseSerilog();
     }
 }
