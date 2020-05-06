@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
-using Compile.Me.Shared.Modals;
 
-namespace compile.me.shared
+namespace Compile.Me.Worker.Service
 {
     public static class Constants
     {

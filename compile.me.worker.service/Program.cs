@@ -1,5 +1,5 @@
 using System;
-using Compile.Me.Worker.Service.Service;
+using Compile.Me.Shared;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

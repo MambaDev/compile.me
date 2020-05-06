@@ -6,10 +6,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
-using Compile.Me.Shared.Modals;
 using Compile.Me.Shared.Types;
-using Compile.Me.Worker.Service.Service;
-using Compile.Me.Worker.Service.Service.source.events;
+using Compile.Me.Worker.Service.Events;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Logging;
@@ -30,7 +28,7 @@ namespace Compile.Me.Worker.Service
         /// The request that will be processed for the given sandbox. Including all the required code and compiler
         /// information that will be used.
         /// </summary>
-        private readonly SandboxRequest _sandboxRequest;
+        private readonly SandboxCreationRequest _sandboxCreationRequest;
 
         /// <summary>
         /// The client that will be used to communicate with the docker demon and perform the code execution.
@@ -84,23 +82,29 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         public string ContainerId { get; private set; }
 
+        /// <summary>
+        /// The id of the request, used to perform related correlation between the request and the response.
+        /// </summary>
+        public Guid RequestId => this._sandboxCreationRequest.Id;
+
         #endregion
 
         /// <summary>
         /// Creates a new instance of the sandbox.
         /// </summary>
         /// <param name="dockerClient">The workers docker client that will be used to create the underlining container</param>
-        /// <param name="sandboxRequest">The requesting information for the given sandbox.</param>
+        /// <param name="sandboxCreationRequest">The requesting information for the given sandbox.</param>
         /// <param name="logger">The workers logger that will be used to log information</param>
-        public Sandbox(ILogger<CompilerService> logger, DockerClient dockerClient, SandboxRequest sandboxRequest)
+        public Sandbox(ILogger<CompilerService> logger, DockerClient dockerClient,
+            SandboxCreationRequest sandboxCreationRequest)
         {
             this._logger = logger;
             this._dockerClient = dockerClient;
-            this._sandboxRequest = sandboxRequest;
+            this._sandboxCreationRequest = sandboxCreationRequest;
 
             // Setup the timeout timer for removing and stopping the container if its still executing after this
             // time limit.
-            this._timeoutTimer = new System.Timers.Timer(this._sandboxRequest.TimeoutSeconds * 1000)
+            this._timeoutTimer = new System.Timers.Timer(this._sandboxCreationRequest.TimeoutSeconds * 1000)
             {
                 AutoReset = false,
                 Enabled = false
@@ -144,33 +148,33 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private async Task Execute()
         {
-            var language = this._sandboxRequest.Compiler.Language;
-            var compiler = this._sandboxRequest.Compiler.CompilerEntry;
+            var language = this._sandboxCreationRequest.Compiler.Language;
+            var compiler = this._sandboxCreationRequest.Compiler.CompilerEntry;
 
             var commandLine = new List<string>
             {
                 "sh", "./script.sh", compiler, $"{language}.source", $"{language}.input",
-                this._sandboxRequest.Compiler.Interpreter ? string.Empty : $"{language}.out.o",
-                this._sandboxRequest.Compiler.AdditionalArguments,
-                this._sandboxRequest.Compiler.StandardOutputFile,
-                this._sandboxRequest.Compiler.StandardErrorFile
+                this._sandboxCreationRequest.Compiler.Interpreter ? string.Empty : $"{language}.out.o",
+                this._sandboxCreationRequest.Compiler.AdditionalArguments,
+                this._sandboxCreationRequest.Compiler.StandardOutputFile,
+                this._sandboxCreationRequest.Compiler.StandardErrorFile
             };
 
             // The working directory just be in a unix based absolute format otherwise its not
             // going to work as expected and thus needs to be converted to ensure that it is in
             // that format.
-            var workingDirectory = ConvertPathToUnix(this._sandboxRequest.Path);
+            var workingDirectory = ConvertPathToUnix(this._sandboxCreationRequest.Path);
 
             var container = await this._dockerClient.Containers.CreateContainerAsync(new CreateContainerParameters
             {
                 WorkingDir = "/input",
-                Image = this._sandboxRequest.Compiler.VirtualMachineName,
+                Image = this._sandboxCreationRequest.Compiler.VirtualMachineName,
                 NetworkDisabled = true,
                 Entrypoint = commandLine,
                 HostConfig = new HostConfig
                 {
                     Binds = new List<string> {$"{workingDirectory}:/input"},
-                    Memory = this._sandboxRequest.MemoryConstraint * 1000000,
+                    Memory = this._sandboxCreationRequest.MemoryConstraint * 1000000,
                     AutoRemove = true
                 }
             });
@@ -193,25 +197,26 @@ namespace Compile.Me.Worker.Service
             // Create the temporary directory that will be used for storing the source code, standard input and then
             // the location in which the compiler will write the standard output and the standard error output.
             // After the data is written and returned, the location will be deleted.
-            Directory.CreateDirectory(this._sandboxRequest.Path);
+            Directory.CreateDirectory(this._sandboxCreationRequest.Path);
 
             // Write down the source code for the given request. 
             await File.WriteAllTextAsync(
-                Path.Join(this._sandboxRequest.Path, $"{this._sandboxRequest.Compiler.Language}.source"),
-                this._sandboxRequest.SourceCode);
+                Path.Join(this._sandboxCreationRequest.Path,
+                    $"{this._sandboxCreationRequest.Compiler.Language}.source"),
+                this._sandboxCreationRequest.SourceCode);
 
             // Write down the standard input for the given request.
             await File.WriteAllTextAsync(
-                Path.Join(this._sandboxRequest.Path, $"{this._sandboxRequest.Compiler.Language}.input"),
-                this._sandboxRequest.StdinData);
+                Path.Join(this._sandboxCreationRequest.Path, $"{this._sandboxCreationRequest.Compiler.Language}.input"),
+                this._sandboxCreationRequest.StdinData);
 
             // Create the empty files for standard output and standard error output for the request.
             // This just ensures that we are always going to expect it to exist. Resolving file related
             // cases later on.
             foreach (var filePath in new List<string>
             {
-                Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardOutputFile),
-                Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardErrorFile)
+                Path.Join(this._sandboxCreationRequest.Path, this._sandboxCreationRequest.Compiler.StandardOutputFile),
+                Path.Join(this._sandboxCreationRequest.Path, this._sandboxCreationRequest.Compiler.StandardErrorFile)
             })
             {
                 await File.Create(filePath).DisposeAsync();
@@ -219,7 +224,7 @@ namespace Compile.Me.Worker.Service
 
             // Finally copy in the script file that will be executed to execute the program.
             File.Copy(Path.Join(Directory.GetCurrentDirectory(), "/source/script.sh"),
-                Path.Join(this._sandboxRequest.Path, "script.sh"));
+                Path.Join(this._sandboxCreationRequest.Path, "script.sh"));
         }
 
         /// <summary>
@@ -231,11 +236,11 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private void Cleanup()
         {
-            Trace.Assert(!string.IsNullOrWhiteSpace(this._sandboxRequest?.Path));
+            Trace.Assert(!string.IsNullOrWhiteSpace(this._sandboxCreationRequest?.Path));
 
             // Remove the temporary directory and all its contents since at this point they should all be fully
             // read and ready to return from the completed request.
-            Directory.Delete(this._sandboxRequest?.Path, true);
+            Directory.Delete(this._sandboxCreationRequest?.Path, true);
         }
 
         /// <summary>
@@ -244,7 +249,8 @@ namespace Compile.Me.Worker.Service
         /// <returns>The standard output of the sandbox.</returns>
         private string GetSandboxStandardOutput()
         {
-            var path = Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardOutputFile);
+            var path = Path.Join(this._sandboxCreationRequest.Path,
+                this._sandboxCreationRequest.Compiler.StandardOutputFile);
             return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
         }
 
@@ -254,7 +260,8 @@ namespace Compile.Me.Worker.Service
         /// <returns>The standard error output of the sandbox.</returns>
         private string GetLoadSandboxStandardErrorOutput()
         {
-            var path = Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardErrorFile);
+            var path = Path.Join(this._sandboxCreationRequest.Path,
+                this._sandboxCreationRequest.Compiler.StandardErrorFile);
             return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
         }
 
@@ -429,14 +436,14 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         ///  The status update event.
         /// </summary>
-        public event StatusChangeEventHandler SandboxStatusChangeEvent;
+        public event StatusChangeEventHandler StatusChangeEvent;
 
         /// <summary>
         /// Raise the status update event for the given sandbox.
         /// </summary>
         /// <param name="status">The updated status.</param>
         private void RaiseStatusChangeEvent(ContainerStatus status) =>
-            this.SandboxStatusChangeEvent?.Invoke(this,
+            this.StatusChangeEvent?.Invoke(this,
                 new SandboxStatusChangeEventArgs(this.ContainerId, status));
 
         #endregion

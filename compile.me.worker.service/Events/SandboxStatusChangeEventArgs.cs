@@ -1,6 +1,6 @@
 ﻿using Compile.Me.Shared.Types;
 
-namespace Compile.Me.Worker.Service.Service.source.events
+namespace Compile.Me.Worker.Service.Events
 {
     public class SandboxStatusChangeEventArgs
     {

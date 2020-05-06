@@ -1,7 +1,4 @@
-﻿using System.Text.Json.Serialization;
-using Newtonsoft.Json;
-
-namespace Compile.Me.Shared.Modals
+﻿namespace Compile.Me.Worker.Service
 {
     public class Compiler
     {

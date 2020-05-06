@@ -1,6 +1,9 @@
-﻿using PureNSQSharp;
+﻿using System.Threading.Tasks;
+using Compile.Me.Shared.Modals;
+using Newtonsoft.Json;
+using PureNSQSharp;
 
-namespace Compile.Me.Worker.Service
+namespace Compile.Me.Shared
 {
     public class CompilerPublisher
     {
@@ -25,7 +28,7 @@ namespace Compile.Me.Worker.Service
         {
             this._address = address;
 
-            // if (!string.IsNullOrWhiteSpace(this._address)) this.Connect();
+            if (!string.IsNullOrWhiteSpace(this._address)) this.Connect();
         }
 
         /// <summary>
@@ -47,6 +50,27 @@ namespace Compile.Me.Worker.Service
 
             if (!string.IsNullOrWhiteSpace(this._address))
                 this.Connect();
+        }
+
+        /// <summary>
+        /// Publishes a request to compile and execute the code.
+        /// A standard compile process.
+        /// </summary>
+        /// <param name="request">The request that would be compiled.</param>
+        public async Task PublishCompileSourceRequest(CompileSourceRequest request)
+        {
+            await this._producer.PublishAsync("compiling", JsonConvert.SerializeObject(request));
+        }
+        
+        
+
+        /// <summary>
+        /// Publishes a response to a compile request.
+        /// </summary>
+        /// <param name="response">The response that has been compiled.</param>
+        public async Task PublishCompileSourceResponse(CompileSourceResponse response)
+        {
+            await this._producer.PublishAsync("compiled", JsonConvert.SerializeObject(response));
         }
     }
 }

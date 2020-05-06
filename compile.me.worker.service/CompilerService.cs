@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using compile.me.shared;
+using Compile.Me.Shared;
 using Compile.Me.Shared.Modals;
 using Compile.Me.Shared.Types;
-using Compile.Me.Worker.Service.Service;
-using Compile.Me.Worker.Service.Service.source.events;
+using Compile.Me.Worker.Service;
+using Compile.Me.Worker.Service.Events;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Configuration;
@@ -84,34 +85,19 @@ namespace Compile.Me.Worker.Service
             this._dockerClient = new DockerClientConfiguration(new Uri(this._configuration.Docker)).CreateClient();
         }
 
-
         /// <summary>
-        /// Called when the application has started.
+        /// Creates the new sandbox based on the given request and runs it.
         /// </summary>
-        /// <param name="cancellationToken">The cancellation token that would be used to stop the application.</param>
-        public Task StartAsync(CancellationToken cancellationToken)
+        /// <param name="request">The request that will contain the sandbox details.</param>
+        /// <returns></returns>
+        internal async Task HandleCreateSandboxRequest(SandboxCreationRequest request)
         {
-            Task.Run(async () =>
-            {
-                await this._dockerClient.System.MonitorEventsAsync(new ContainerEventsParameters(),
-                    new Progress<JSONMessage>(this.OnDockerSystemMessage), cancellationToken);
-            }, cancellationToken);
+            var sandbox = new Sandbox(this._logger, this._dockerClient, request);
+            this._executingSandboxes.Add(sandbox);
 
-            this._hostApplicationLifetime.ApplicationStarted.Register(this.OnStart);
-            this._hostApplicationLifetime.ApplicationStopping.Register(this.onStopping);
-            this._hostApplicationLifetime.ApplicationStopped.Register(this.onStopped);
+            sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
 
-            return Task.CompletedTask;
-        }
-
-
-        /// <summary>
-        /// Called when the application should be stopping.
-        /// </summary>
-        /// <param name="cancellationToken">Cancellation token of the stop.</param>
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            return Task.CompletedTask;
+            await sandbox.Run();
         }
 
         /// <summary>
@@ -139,26 +125,74 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="sender">The container being triggered.</param>
         /// <param name="args">The arguments of the id and the status</param>
-        private void SandboxOnSandboxStatusChangeEvent(object sender, SandboxStatusChangeEventArgs args)
+        private async void OnStatusChangeEvent(object sender, SandboxStatusChangeEventArgs args)
         {
-            if (args.Status == Shared.Types.ContainerStatus.Removed) this.HandleSandboxComplete(args.Id);
+            if (args.Status == Shared.Types.ContainerStatus.Removed)
+                this.HandleSandboxComplete(args.Id).FireAndForgetSafeAsync(this.HandleSandboxCompleteFailedException);
         }
 
+
+        /// <summary>
+        /// Handles the case in which the handling of the sandbox complete failed. 
+        /// </summary>
+        /// <param name="exception">The exception caused during the timeout.</param>
+        private void HandleSandboxCompleteFailedException(Exception exception)
+        {
+            this._logger.LogError($"error completing sandbox failed, error={exception.Message}");
+        }
 
         /// <summary>
         /// Handles the case in which the container is complete, e.g getting the response and pushing it back
         /// onto the queue and ensuring that the container and its information is removed from memory.
         /// </summary>
         /// <param name="containerId">The id of the container being handled.</param>
-        private void HandleSandboxComplete(string containerId)
+        private async Task HandleSandboxComplete(string containerId)
         {
             var sandbox = this._executingSandboxes.FirstOrDefault(e => e.ContainerId == containerId);
-            var response = JsonConvert.SerializeObject(sandbox.GetResponse());
 
+            var response = sandbox.GetResponse();
+
+            sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
             this._executingSandboxes.Remove(sandbox);
 
-            this._logger.LogInformation($"{containerId.Substring(0, 5)}: - result {response}");
+            // Publish the result back into the queue.
+            var compileResponse = new CompileSourceResponse(sandbox.RequestId, response.StandardOutput,
+                response.StandardErrorOutput, response.Result, response.Status);
+
+            await this._publisher.PublishCompileSourceResponse(compileResponse);
         }
+
+        #region IHost Start/Stop
+
+        /// <summary>
+        /// Called when the application has started.
+        /// </summary>
+        /// <param name="cancellationToken">The cancellation token that would be used to stop the application.</param>
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            Task.Run(async () =>
+            {
+                await this._dockerClient.System.MonitorEventsAsync(new ContainerEventsParameters(),
+                    new Progress<JSONMessage>(this.OnDockerSystemMessage), cancellationToken);
+            }, cancellationToken);
+
+            this._hostApplicationLifetime.ApplicationStarted.Register(this.OnStart);
+            this._hostApplicationLifetime.ApplicationStopping.Register(this.onStopping);
+            this._hostApplicationLifetime.ApplicationStopped.Register(this.onStopped);
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called when the application should be stopping.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token of the stop.</param>
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        #endregion
 
         #region Worker Events
 
@@ -168,32 +202,13 @@ namespace Compile.Me.Worker.Service
         private void OnStart()
         {
             this._logger.LogInformation(("onStart has been called."));
-
-            this._consumer = new Consumer("compiling", "request", new Config() {MaxInFlight = 2});
-            this._consumer.AddHandler(new CompileQueueMessageHandler(this._logger, this), 4);
-            // this._consumer.ConnectToNSQd(this._configuration.Consumer);
-
-
-            for (var i = 0; i < 5; i++)
+            this._consumer = new Consumer("compiling", "request", new Config()
             {
-                var python = Constants.Compilers.First(e =>
-                    e.Language.Equals("python", StringComparison.InvariantCultureIgnoreCase));
+                MaxInFlight = 2
+            });
 
-                var sandbox = new Sandbox(this._logger, this._dockerClient, new SandboxRequest()
-                {
-                    Path = $"./temp/{python.Language}/{Guid.NewGuid():N}/",
-                    SourceCode = "print('hello: {}!'.format(input()))",
-                    StdinData = (i + 1) % 2 == 0 ? "bob" : "james",
-                    Compiler = python,
-                    TimeoutSeconds = 3,
-                });
-
-                this._executingSandboxes.Add(sandbox);
-
-                sandbox.SandboxStatusChangeEvent += this.SandboxOnSandboxStatusChangeEvent;
-
-                Task.Run(() => sandbox.Run());
-            }
+            this._consumer.AddHandler(new CompileQueueMessageHandler(this._logger, this), 4);
+            this._consumer.ConnectToNSQLookupd(this._configuration.Consumer);
         }
 
         /// <summary>
@@ -233,7 +248,7 @@ namespace Compile.Me.Worker.Service
         private readonly object LockInstance = new object();
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="TwitchMessageHandler" /> class.
+        /// Initializes a new instance of the <see cref="CompileQueueMessageHandler" /> class.
         /// </summary>
         /// <param name="logger">The logger.</param>
         /// <param name="compileService">The sentiment service.</param>
@@ -249,8 +264,31 @@ namespace Compile.Me.Worker.Service
         /// <param name="message">The raw message.</param>
         public void HandleMessage(IMessage message)
         {
-            // var compileRequest = JsonConvert.DeserializeObject<JObject>(Encoding.UTF8.GetString(message.Body));
-            this._logger.LogInformation(Encoding.UTF8.GetString(message.Body));
+            var stringMessage = Encoding.UTF8.GetString(message.Body);
+            var compileRequest = JsonConvert.DeserializeObject<CompileSourceRequest>(stringMessage);
+
+            Trace.Assert(compileRequest != null && compileRequest.Id != Guid.Empty);
+
+            var compiler = Constants.Compilers.FirstOrDefault(e => e.Language == compileRequest.Compiler);
+
+            Trace.Assert(compiler != null);
+
+            var sandboxCreationRequest = new SandboxCreationRequest(compileRequest.Id, compileRequest.TimeoutSeconds, 
+                compileRequest.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/", 
+                compileRequest.SourceCode, compileRequest.StdinData, compiler);
+
+            this._compileService.HandleCreateSandboxRequest(sandboxCreationRequest)
+                .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
+
+            message.Finish();
+        }
+
+        /// <summary>
+        /// Handles the case in which the sandbox request could not be created.
+        /// </summary>
+        private void HandleFailedSandboxCreationRequest(Exception e)
+        {
+            this._logger.LogError(e.Message);
         }
 
 
