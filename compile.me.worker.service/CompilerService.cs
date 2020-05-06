@@ -40,6 +40,12 @@ namespace Compile.Me.Worker.Service
         private readonly IHostApplicationLifetime _hostApplicationLifetime;
 
         /// <summary>
+        /// The compiling publisher that would be used to publish the data back to the
+        /// queue once the job has been completed.
+        /// </summary>
+        private readonly CompilerPublisher _publisher;
+
+        /// <summary>
         /// The docker client that will be used to create, manage and work with containers.
         /// Including listening to and processing through the stream.
         /// </summary>
@@ -65,14 +71,17 @@ namespace Compile.Me.Worker.Service
         /// <param name="applicationLifetime">The application lifetime.</param>
         /// <param name="configuration">The application configuration.</param>
         public CompilerService(ILogger<CompilerService> logger, IHostApplicationLifetime applicationLifetime,
-            IConfiguration configuration)
+            IConfiguration configuration, CompilerPublisher publisher)
         {
             this._logger = logger;
             this._hostApplicationLifetime = applicationLifetime;
+            this._publisher = publisher;
+
+
             this._configuration = configuration.GetSection("configuration").GetSection("compiler")
                 .Get<CompileServiceConfiguration>();
 
-            this._dockerClient = new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
+            this._dockerClient = new DockerClientConfiguration(new Uri(this._configuration.Docker)).CreateClient();
         }
 
 

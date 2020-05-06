@@ -3,11 +3,18 @@
     public class CompileServiceConfiguration
     {
         /// <summary>
-        /// Gets or sets the consumer.
+        /// Gets or sets the consumer url.
         /// </summary>
-        /// <value>
-        /// The consumer.
-        /// </value>
         public string Consumer { get; set; }
+
+        /// <summary>
+        /// Gets or sets the publisher url.
+        /// </summary>
+        public string Publisher { get; set; }
+
+        /// <summary>
+        /// Gets or sets the docker demon url.
+        /// </summary>
+        public string Docker { get; set; }
     }
 }

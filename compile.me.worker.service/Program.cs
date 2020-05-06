@@ -35,7 +35,13 @@ namespace Compile.Me.Worker.Service
                     builder.AddJsonFile($"appsettings.{context.HostingEnvironment.EnvironmentName}.json",
                         optional: true, reloadOnChange: true);
                 })
-                .ConfigureServices((hostContext, services) => { services.AddHostedService<CompilerService>(); })
+                .ConfigureServices((hostContext, services) =>
+                {
+                    var config = hostContext.Configuration.GetSection("configuration").GetSection("compiler");
+
+                    services.AddSingleton(new CompilerPublisher(config.GetValue<string>("publisher")));
+                    services.AddHostedService<CompilerService>();
+                })
                 .UseSerilog();
     }
 }
