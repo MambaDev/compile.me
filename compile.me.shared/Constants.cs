@@ -1,9 +1,9 @@
 ﻿using System.Collections.Generic;
-using compile.me.shared.Modals;
+using Compile.Me.Shared.Modals;
 
-namespace compile.me.worker.service
+namespace compile.me.shared
 {
-    public class Constants
+    public static class Constants
     {
         /// <summary>
         /// The list of supported compilers and there related properties.

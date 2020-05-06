@@ -55,15 +55,11 @@ else
     $output - <"${stdInFile}" #| tee /usercode/output.txt
   else
     echo "Compilation Failed"
-    #if compilation fails, display the output file
-    #cat /usercode/errors.txt
   fi
 fi
 
 #exec 1>&3 2>&4
 
-#head -100 /usercode/$standard_output
-#touch /usercode/completed
 END=$(date +%s.%2N)
 runtime=$(echo "$END - $START" | bc)
 

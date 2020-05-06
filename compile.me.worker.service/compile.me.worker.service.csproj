@@ -3,6 +3,8 @@
     <PropertyGroup>
         <TargetFramework>netcoreapp3.1</TargetFramework>
         <UserSecretsId>dotnet-compile.me.worker.service-8B54ECA0-48C6-4513-9D52-7F37351A97AA</UserSecretsId>
+        <AssemblyName>Compile.Me.Worker.Service</AssemblyName>
+        <RootNamespace>Compile.Me.Worker.Service</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>

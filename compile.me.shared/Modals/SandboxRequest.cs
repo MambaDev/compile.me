@@ -1,4 +1,4 @@
-﻿namespace compile.me.shared.Modals
+﻿namespace Compile.Me.Shared.Modals
 {
     public class SandboxRequest
     {

@@ -1,61 +1,30 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
-using compile.me.shared.Modals;
-using compile.me.worker.service.source.events;
+using Compile.Me.Shared.Modals;
+using Compile.Me.Shared.Types;
+using Compile.Me.Worker.Service.Service;
+using Compile.Me.Worker.Service.Service.source.events;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Logging;
+using ContainerStatus = Compile.Me.Shared.Types.ContainerStatus;
 
-namespace compile.me.worker.service
+namespace Compile.Me.Worker.Service
 {
-    public enum SandboxStatus
-    {
-        /// <summary>
-        /// The sandbox is currently in a unknown state.
-        /// </summary>
-        Unknown = -1,
-
-        /// <summary>
-        /// The box has just been created but has not been started yet.
-        /// </summary>
-        Created = 1,
-
-        /// <summary>
-        /// The sandbox has been started and will be begin executing the code.
-        /// </summary>
-        Started = 2,
-
-        /// <summary>
-        /// The docker container is being killed and thus is currently shutting down.
-        /// </summary>
-        Killing = 3,
-
-        /// <summary>
-        /// The docker container has been killed.
-        /// </summary>
-        Killed = 4,
-
-        /// <summary>
-        /// The container has been removed and thus ending its life cycle.
-        /// </summary>
-        Removed = 5
-    }
-
     public class Sandbox
     {
         #region Fields
 
         /// <summary>
-        /// The current status of the docker container/sanbox is currently in.
+        /// The current status of the sandbox.
         /// </summary>
-        private SandboxStatus _status = SandboxStatus.Unknown;
+        private SandboxStatus _sandboxStatus = new SandboxStatus();
 
         /// <summary>
         /// The request that will be processed for the given sandbox. Including all the required code and compiler
@@ -76,39 +45,44 @@ namespace compile.me.worker.service
         /// <summary>
         /// The related docker system event messages that are related to this sandbox/container.
         /// </summary>
-        private readonly List<JSONMessage> _dockerSystemEventMessages = new List<JSONMessage>();
+        private readonly List<JSONMessage> _containerEventmessages = new List<JSONMessage>();
 
         /// <summary>
         /// The time out timer, this will be triggered when the container starts.
         /// If the given container is still executing when the timer is fired,
         /// then the container will be killed with no waiting period.
         /// </summary>
-        private System.Timers.Timer _timeoutTimer;
+        private readonly System.Timers.Timer _timeoutTimer;
+
+        /// <summary>
+        /// The finalized response of the sandbox.
+        /// </summary>
+        private SandboxResponse _sandboxResponse = new SandboxResponse();
 
         #endregion
 
         #region Properties
 
         /// <summary>
-        /// The executing containers id.
-        /// </summary>
-        public string ContainerId { get; private set; }
-
-        /// <summary>
         /// The current status of the docker container/sanbox is currently in.
         /// </summary>
-        private SandboxStatus Status
+        private ContainerStatus Status
         {
-            get => this._status;
+            get => this._sandboxStatus.ContainerStatus;
             set
             {
                 // Update the local status event and trigger the update event.
                 // if and only if the updated status is new and does not match
                 // the already existing status.
-                if (this._status != value) this.RaiseStatusChangeEvent(value);
-                this._status = value;
+                if (this._sandboxStatus.ContainerStatus != value) this.RaiseStatusChangeEvent(value);
+                this._sandboxStatus.ContainerStatus = value;
             }
         }
+
+        /// <summary>
+        /// The executing containers id.
+        /// </summary>
+        public string ContainerId { get; private set; }
 
         #endregion
 
@@ -135,18 +109,6 @@ namespace compile.me.worker.service
             this._timeoutTimer.Elapsed += this.SandboxTimeoutLimitExceeded;
         }
 
-        /// <summary>
-        /// Handle the case in which the container is still executing after the timeout
-        /// limit has been reached.
-        /// </summary>
-        private void SandboxTimeoutLimitExceeded(object sender, ElapsedEventArgs e)
-        {
-            // If the status has been killed / removed at the point of which the timer was triggered.
-            // Then don't bother doing anything and just return out.
-            if (this.Status == SandboxStatus.Killed || this.Status == SandboxStatus.Removed) return;
-
-            // TODO: KILL THE CONTAINER IF STILL RUNNING
-        }
 
         /// <summary>
         /// Run the sandbox container with the given configuration options. 
@@ -164,15 +126,14 @@ namespace compile.me.worker.service
             }
             catch (Exception error)
             {
-                this._logger.LogError(error.Message);
+                this._logger.LogError($"error attempting to execute container, error={error.Message}");
+
+                // Stop the container in the same method the timeout would.
+                this.StopContainer().FireAndForgetSafeAsync(this.HandleTimeoutStopContainerException);
 
                 // If something went wrong, lets just clean up and exist now. Ensuring
                 // that we clean up on the way out.
-                await this.Cleanup();
-            }
-            finally
-            {
-                await this.Cleanup();
+                this.Cleanup();
             }
         }
 
@@ -217,6 +178,7 @@ namespace compile.me.worker.service
             // Bind the container id that will be later used to ensure that the container is removed and cleaned up
             // while additionally used to start the container.
             this.ContainerId = container.ID;
+
             await this._dockerClient.Containers.StartContainerAsync(this.ContainerId,
                 new ContainerStartParameters());
         }
@@ -267,12 +229,72 @@ namespace compile.me.worker.service
         ///
         /// Destroying the container if its still executing for any reason.
         /// </summary>
-        private Task Cleanup()
+        private void Cleanup()
         {
+            Trace.Assert(!string.IsNullOrWhiteSpace(this._sandboxRequest?.Path));
+
             // Remove the temporary directory and all its contents since at this point they should all be fully
             // read and ready to return from the completed request.
-            Directory.Delete(this._sandboxRequest.Path, true);
-            return Task.CompletedTask;
+            Directory.Delete(this._sandboxRequest?.Path, true);
+        }
+
+        /// <summary>
+        /// Loads the response of the sandbox execution, the standard output.
+        /// </summary>
+        /// <returns>The standard output of the sandbox.</returns>
+        private string GetSandboxStandardOutput()
+        {
+            var path = Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardOutputFile);
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+
+        /// <summary>
+        /// Loads the response of the sandbox error execution, the standard error output.
+        /// </summary>
+        /// <returns>The standard error output of the sandbox.</returns>
+        private string GetLoadSandboxStandardErrorOutput()
+        {
+            var path = Path.Join(this._sandboxRequest.Path, this._sandboxRequest.Compiler.StandardErrorFile);
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+
+        /// <summary>
+        /// Get the response of the sandbox, can only be called once in removed state.
+        /// </summary>
+        /// <returns></returns>
+        public SandboxResponse GetResponse()
+        {
+            Trace.Assert(this.Status != ContainerStatus.Removed, "Sandbox response cannot be returned if not removed.");
+
+            if (this._sandboxStatus.ExceededMemoryLimit || this._sandboxStatus.ExceededTimeoutLimit)
+            {
+                this._sandboxResponse.Result = SandboxResponseResult.Failed;
+                this._sandboxResponse.Status = this._sandboxStatus.ExceededMemoryLimit
+                    ? SandboxResponseStatus.MemoryConstraintExceeded
+                    : SandboxResponseStatus.TimeLimitExceeded;
+            }
+            else
+            {
+                this._sandboxResponse.Status = SandboxResponseStatus.Finished;
+                this._sandboxResponse.Result = SandboxResponseResult.Succeeded;
+            }
+
+            return this._sandboxResponse;
+        }
+
+
+        /// <summary>
+        /// Stops the underlining container if its running (this is expected to also remove the container since it
+        /// has the auto remove flag set).
+        /// </summary>
+        private async Task StopContainer()
+        {
+            Trace.Assert(!string.IsNullOrWhiteSpace(this.ContainerId));
+
+            // Stop the container and don't wait any number of seconds to kill it. e.g remove it
+            // right away if it fails to stop.
+            await this._dockerClient.Containers.StopContainerAsync(this.ContainerId,
+                new ContainerStopParameters() {WaitBeforeKillSeconds = 1}, CancellationToken.None);
         }
 
         /// <summary>
@@ -284,25 +306,19 @@ namespace compile.me.worker.service
             switch (status)
             {
                 case "create":
-                    this.Status = SandboxStatus.Created;
+                    this.HandleContainerCreated();
                     break;
                 case "start":
-                    // Since the container has started, start the timeout timer.
-                    this.Status = SandboxStatus.Started;
-                    this._timeoutTimer.Start();
+                    this.HandleContainerStarted();
                     break;
                 case "kill":
-                    this.Status = SandboxStatus.Killing;
+                    this.HandleContainerKilling();
                     break;
                 case "die":
-                    // ensure to stop the kill timer if its still running.
-                    this.Status = SandboxStatus.Killed;
-                    this._timeoutTimer.Stop();
+                    this.HandleContainerKilled();
                     break;
                 case "destroy":
-                    // ensure to stop the kill timer if its still running.
-                    this.Status = SandboxStatus.Removed;
-                    this._timeoutTimer.Stop();
+                    this.HandleContainerRemoved();
                     break;
                 default:
                     this.Status = this.Status;
@@ -310,7 +326,98 @@ namespace compile.me.worker.service
             }
         }
 
+        #region Container Status Handlers
+
+        /// <summary>
+        /// Handles the case in which the given container has been created.
+        /// </summary>
+        private void HandleContainerCreated()
+        {
+            this.Status = ContainerStatus.Created;
+        }
+
+        /// <summary>
+        /// Handles the case in which the given container has been started.
+        /// </summary>
+        private void HandleContainerStarted()
+        {
+            this.Status = ContainerStatus.Started;
+
+            // Start the one shot timeout timer that will be used to ensure that the 
+            // given container does not seed its time/execution limit.
+            this._timeoutTimer.Start();
+        }
+
+        /// <summary>
+        /// Handles the case in which the given container is being killed.
+        /// </summary>
+        private void HandleContainerKilling()
+        {
+            this.Status = ContainerStatus.Killing;
+        }
+
+        /// <summary>
+        /// Handles the case in which the given container has been killed.
+        /// </summary>
+        private void HandleContainerKilled()
+        {
+            this._timeoutTimer.Stop();
+
+            this._sandboxResponse.StandardOutput = this.GetSandboxStandardOutput();
+            this._sandboxResponse.StandardErrorOutput = this.GetLoadSandboxStandardErrorOutput();
+
+            // Ensure that the status is the last thing updated, since this will trigger the
+            // event, and we don't want the worker service knowing we are "killed" until
+            // ready.
+            this.Status = ContainerStatus.Killed;
+        }
+
+        /// <summary>
+        /// Handles the case in which the given container has been removed.
+        /// </summary>
+        private void HandleContainerRemoved()
+        {
+            this.Cleanup();
+
+            // Ensure that the status is the last thing updated, since this will trigger the
+            // event, and we don't want the worker service knowing we are "removed" until we
+            // have loaded the data ready for finishing.
+            this.Status = ContainerStatus.Removed;
+        }
+
+        #endregion
+
         #region Events
+
+        /// <summary>
+        /// Handle the case in which the container is still executing after the timeout
+        /// limit has been reached.
+        /// </summary>
+        private void SandboxTimeoutLimitExceeded(object sender, ElapsedEventArgs e)
+        {
+            // Just ensure that the timer is not going to run again.
+            this._timeoutTimer.AutoReset = false;
+            this._timeoutTimer.Enabled = false;
+
+            // If the status has been killed / removed at the point of which the timer was triggered.
+            // Then don't bother doing anything and just return out.
+            if (this.Status == ContainerStatus.Killed || this.Status == ContainerStatus.Removed) return;
+
+            this._logger.LogWarning($"container {this.ContainerId}[{this.Status}] has exceeded timeout, stopping");
+            this._sandboxStatus.ExceededTimeoutLimit = true;
+
+            this.StopContainer().FireAndForgetSafeAsync(this.HandleTimeoutStopContainerException);
+        }
+
+        /// <summary>
+        /// Handles the case in which the container failed to stop after the sandbox timeout event fired.;w
+        /// 
+        /// </summary>
+        /// <param name="exception">The exception caused during the timeout.</param>
+        private void HandleTimeoutStopContainerException(Exception exception)
+        {
+            this._logger.LogError($"error stopping container on sandbox timeout, error={exception.Message}");
+        }
 
         /// <summary>
         /// The delegate event handler for the status change event on the given sandbox.
@@ -328,7 +435,7 @@ namespace compile.me.worker.service
         /// Raise the status update event for the given sandbox.
         /// </summary>
         /// <param name="status">The updated status.</param>
-        protected void RaiseStatusChangeEvent(SandboxStatus status) =>
+        private void RaiseStatusChangeEvent(ContainerStatus status) =>
             this.SandboxStatusChangeEvent?.Invoke(this,
                 new SandboxStatusChangeEventArgs(this.ContainerId, status));
 
@@ -342,7 +449,7 @@ namespace compile.me.worker.service
         public void AddDockerEventMessage(JSONMessage message)
         {
             this.UpdateStatusFromDockerEventMessageStatus(message.Status);
-            this._dockerSystemEventMessages.Add(message);
+            this._containerEventmessages.Add(message);
         }
 
         /// <summary>

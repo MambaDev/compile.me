@@ -1,18 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using compile.me.shared.Modals;
-using compile.me.worker.service.source.events;
+using compile.me.shared;
+using Compile.Me.Shared.Modals;
+using Compile.Me.Shared.Types;
+using Compile.Me.Worker.Service.Service;
+using Compile.Me.Worker.Service.Service.source.events;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using PureNSQSharp;
+using Config = PureNSQSharp.Config;
 
-namespace compile.me.worker.service
+namespace Compile.Me.Worker.Service
 {
     public class CompilerService : IHostedService
     {
@@ -24,20 +30,26 @@ namespace compile.me.worker.service
         private readonly ILogger<CompilerService> _logger;
 
         /// <summary>
+        /// The configuration
+        /// </summary>
+        private readonly CompileServiceConfiguration _configuration;
+
+        /// <summary>
         /// The application life time.
         /// </summary>
         private readonly IHostApplicationLifetime _hostApplicationLifetime;
-
-        /// <summary>
-        /// The application configuration.
-        /// </summary>
-        private readonly IConfiguration _configuration;
 
         /// <summary>
         /// The docker client that will be used to create, manage and work with containers.
         /// Including listening to and processing through the stream.
         /// </summary>
         private readonly DockerClient _dockerClient;
+
+        /// <summary>
+        /// The subscriber
+        /// </summary>
+        private Consumer _consumer;
+
 
         /// <summary>
         /// A list of the current executing sandbox devices.
@@ -57,7 +69,8 @@ namespace compile.me.worker.service
         {
             this._logger = logger;
             this._hostApplicationLifetime = applicationLifetime;
-            this._configuration = configuration;
+            this._configuration = configuration.GetSection("configuration").GetSection("compiler")
+                .Get<CompileServiceConfiguration>();
 
             this._dockerClient = new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
         }
@@ -75,7 +88,7 @@ namespace compile.me.worker.service
                     new Progress<JSONMessage>(this.OnDockerSystemMessage), cancellationToken);
             }, cancellationToken);
 
-            this._hostApplicationLifetime.ApplicationStarted.Register(this.onStart);
+            this._hostApplicationLifetime.ApplicationStarted.Register(this.OnStart);
             this._hostApplicationLifetime.ApplicationStopping.Register(this.onStopping);
             this._hostApplicationLifetime.ApplicationStopped.Register(this.onStopped);
 
@@ -119,8 +132,23 @@ namespace compile.me.worker.service
         /// <param name="args">The arguments of the id and the status</param>
         private void SandboxOnSandboxStatusChangeEvent(object sender, SandboxStatusChangeEventArgs args)
         {
-            this._logger.LogInformation($"update - id: {args.Id} - status: {args.Status}");
-            // TODO: if removed, locate the reference to the container and clean it up (remove handles) 
+            if (args.Status == Shared.Types.ContainerStatus.Removed) this.HandleSandboxComplete(args.Id);
+        }
+
+
+        /// <summary>
+        /// Handles the case in which the container is complete, e.g getting the response and pushing it back
+        /// onto the queue and ensuring that the container and its information is removed from memory.
+        /// </summary>
+        /// <param name="containerId">The id of the container being handled.</param>
+        private void HandleSandboxComplete(string containerId)
+        {
+            var sandbox = this._executingSandboxes.FirstOrDefault(e => e.ContainerId == containerId);
+            var response = JsonConvert.SerializeObject(sandbox.GetResponse());
+
+            this._executingSandboxes.Remove(sandbox);
+
+            this._logger.LogInformation($"{containerId.Substring(0, 5)}: - result {response}");
         }
 
         #region Worker Events
@@ -128,23 +156,27 @@ namespace compile.me.worker.service
         /// <summary>
         /// Called when the application is starting.
         /// </summary>
-        private void onStart()
+        private void OnStart()
         {
             this._logger.LogInformation(("onStart has been called."));
 
-            for (int i = 0; i < 5; i++)
+            this._consumer = new Consumer("compiling", "request", new Config() {MaxInFlight = 2});
+            this._consumer.AddHandler(new CompileQueueMessageHandler(this._logger, this), 4);
+            // this._consumer.ConnectToNSQd(this._configuration.Consumer);
+
+
+            for (var i = 0; i < 5; i++)
             {
-                Thread.Sleep(100);
                 var python = Constants.Compilers.First(e =>
                     e.Language.Equals("python", StringComparison.InvariantCultureIgnoreCase));
 
                 var sandbox = new Sandbox(this._logger, this._dockerClient, new SandboxRequest()
                 {
-                    Path = $"./temp/python/{Guid.NewGuid():N}/",
-                    SourceCode = "import time\ntime.sleep(5)\nprint('hi!')",
-                    StdinData = "5",
+                    Path = $"./temp/{python.Language}/{Guid.NewGuid():N}/",
+                    SourceCode = "print('hello: {}!'.format(input()))",
+                    StdinData = (i + 1) % 2 == 0 ? "bob" : "james",
                     Compiler = python,
-                    TimeoutSeconds = 5,
+                    TimeoutSeconds = 3,
                 });
 
                 this._executingSandboxes.Add(sandbox);
@@ -154,7 +186,6 @@ namespace compile.me.worker.service
                 Task.Run(() => sandbox.Run());
             }
         }
-
 
         /// <summary>
         /// Called when the application is stopping.
@@ -173,5 +204,55 @@ namespace compile.me.worker.service
         }
 
         #endregion
+    }
+
+    public class CompileQueueMessageHandler : IHandler
+    {
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private readonly ILogger<CompilerService> _logger;
+
+        /// <summary>
+        /// The compiler service
+        /// </summary>
+        private readonly CompilerService _compileService;
+
+        /// <summary>
+        /// The lock instance
+        /// </summary>
+        private readonly object LockInstance = new object();
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TwitchMessageHandler" /> class.
+        /// </summary>
+        /// <param name="logger">The logger.</param>
+        /// <param name="compileService">The sentiment service.</param>
+        public CompileQueueMessageHandler(ILogger<CompilerService> logger, CompilerService compileService)
+        {
+            this._logger = logger;
+            this._compileService = compileService;
+        }
+
+        /// <summary>
+        /// Handles the incoming compile requests.
+        /// </summary>
+        /// <param name="message">The raw message.</param>
+        public void HandleMessage(IMessage message)
+        {
+            // var compileRequest = JsonConvert.DeserializeObject<JObject>(Encoding.UTF8.GetString(message.Body));
+            this._logger.LogInformation(Encoding.UTF8.GetString(message.Body));
+        }
+
+
+        /// <summary>
+        /// Called when a message has exceeded the specified <see cref="Config.MaxAttempts" />.
+        /// </summary>
+        /// <param name="message">The failed message.</param>
+        public void LogFailedMessage(IMessage message)
+        {
+            var msg = Encoding.UTF8.GetString(message.Body);
+            this._logger.LogError(msg);
+        }
     }
 }
