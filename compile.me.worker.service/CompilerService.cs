@@ -90,7 +90,7 @@ namespace Compile.Me.Worker.Service
         /// Creates the new sandbox based on the given request and runs it.
         /// </summary>
         /// <param name="request">The request that will contain the sandbox details.</param>
-        /// <returns></returns>
+        /// <param name="compiler">The compiler being used for the process.</param>
         internal async Task HandleSingleCompileSandboxRequest(CompileSourceRequest request, Compiler compiler)
         {
             // Take the inner body and case it to a single compile request body.
@@ -109,11 +109,10 @@ namespace Compile.Me.Worker.Service
         }
 
         /// <summary>
-        /// 
+        /// Creates a new sandbox and performs the compiling process with a supporting test.
         /// </summary>
-        /// <param name="request"></param>
-        /// <param name="compiler"></param>
-        /// <returns></returns>
+        /// <param name="request">The request that will contain the sandbox details.</param>
+        /// <param name="compiler">The compiler being used for the process.</param>
         internal async Task HandleSingleCompileTestSandboxRequest(CompileSourceRequest request, Compiler compiler)
         {
             // Take the inner body and case it to a single compile request body.
@@ -129,6 +128,31 @@ namespace Compile.Me.Worker.Service
             sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
 
             await sandbox.Run();
+        }
+
+
+        /// <summary>
+        /// Creates multiple sandboxes that will be used to execute multiple test cases. Completing once all
+        /// tests have passed or any single test has failed.
+        /// </summary>
+        /// <param name="request">The request that will contain the compile details.</param>
+        /// <param name="compiler">The compiler being used for the process.</param>
+        internal Task HandleMultipleCompileTestSandboxRequest(CompileSourceRequest request, Compiler compiler)
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Creates multiple sandboxes that will be used to execute multiple test cases. Completing once all
+        /// tests have completed, regardless of failing or not.
+        /// </summary>
+        /// <param name="request">The request that will contain the compile details.</param>
+        /// <param name="compiler">The compiler being used for the process.</param>
+        /// <returns></returns>
+        internal Task HandleMultipleParallelCompileTestSandboxRequest(CompileSourceRequest request,
+            Compiler compiler)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -211,8 +235,8 @@ namespace Compile.Me.Worker.Service
             }, cancellationToken);
 
             this._hostApplicationLifetime.ApplicationStarted.Register(this.OnStart);
-            this._hostApplicationLifetime.ApplicationStopping.Register(this.onStopping);
-            this._hostApplicationLifetime.ApplicationStopped.Register(this.onStopped);
+            this._hostApplicationLifetime.ApplicationStopping.Register(this.OnStopping);
+            this._hostApplicationLifetime.ApplicationStopped.Register(this.OnStopped);
 
             return Task.CompletedTask;
         }
@@ -248,7 +272,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// Called when the application is stopping.
         /// </summary>
-        private void onStopping()
+        private void OnStopping()
         {
             this._logger.LogInformation(("onStopping has been called."));
         }
@@ -256,7 +280,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// Called when the application has stopped.
         /// </summary>
-        private void onStopped()
+        private void OnStopped()
         {
             this._logger.LogInformation(("onStopped has been called."));
         }
@@ -318,10 +342,15 @@ namespace Compile.Me.Worker.Service
                         .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
                     break;
                 case CompileRequestType.MultipleTests:
+                    this._compileService.HandleMultipleCompileTestSandboxRequest(compileRequest, compiler)
+                        .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
+                    break;
                 case CompileRequestType.ParallelMultipleTests:
+                    this._compileService.HandleMultipleParallelCompileTestSandboxRequest(compileRequest, compiler)
+                        .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
                     break;
                 default:
-                    break;
+                    throw new ArgumentOutOfRangeException();
             }
 
             message.Finish();

@@ -270,7 +270,7 @@ namespace Compile.Me.Worker.Service
             if (!File.Exists(path)) return new string[] { };
 
             // Read up to 50 lines.
-            var maxStandardOutRead = this._sandboxCreationRequest.TestCase?.Length + 1 ?? 50;
+            var maxStandardOutRead =  50;
 
             var lines = new List<string>();
 

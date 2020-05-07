@@ -54,7 +54,7 @@ namespace compile.me.api
                 })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
-                    webBuilder.UseSerilog().UseStartup<Startup>().UseUrls("http://0.0.0.0:8080/");
+                    webBuilder.UseStartup<Startup>().UseUrls("http://0.0.0.0:8080/");
                 });
         }
     }
