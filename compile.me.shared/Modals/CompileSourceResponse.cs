@@ -14,12 +14,12 @@ namespace Compile.Me.Shared.Modals
         /// <summary>
         /// The raw output that was produced by the sandbox.
         /// </summary>
-        public string StandardOutput { get; set; }
+        public string[] StandardOutput { get; set; }
 
         /// <summary>
         /// The raw error output that was produced by the sandbox.
         /// </summary>
-        public string StandardErrorOutput { get; set; }
+        public string[] StandardErrorOutput { get; set; }
 
         /// <summary>
         /// The result of the sandbox.
@@ -32,6 +32,11 @@ namespace Compile.Me.Shared.Modals
         public SandboxResponseStatus Status { get; set; } = SandboxResponseStatus.Unknown;
 
         /// <summary>
+        /// The given test case result if any.
+        /// </summary>
+        public CompilerTestResult TestResult { get; set; } = CompilerTestResult.Unknown;
+
+        /// <summary>
         /// Creates a new instance of the compile source response.
         /// </summary>
         /// <param name="id">The id of the request (allowing the match up).</param>
@@ -39,14 +44,17 @@ namespace Compile.Me.Shared.Modals
         /// <param name="standardErrorOutput">The standard error result.</param>
         /// <param name="result">The resulting result.</param>
         /// <param name="status">The resulting status.</param>
-        public CompileSourceResponse(Guid id, string standardOutput, string standardErrorOutput,
-            SandboxResponseResult result, SandboxResponseStatus status)
+        /// <param name="testResult">The test result if any.</param>
+        public CompileSourceResponse(Guid id, string[] standardOutput, string[] standardErrorOutput,
+            SandboxResponseResult result, SandboxResponseStatus status,
+            CompilerTestResult testResult = CompilerTestResult.Unknown)
         {
             this.Id = id;
             this.StandardOutput = standardOutput;
             this.StandardErrorOutput = standardErrorOutput;
             this.Result = result;
             this.Status = status;
+            this.TestResult = testResult;
         }
 
         /// <summary>

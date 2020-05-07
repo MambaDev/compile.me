@@ -24,23 +24,6 @@ namespace Compile.Me.Shared.Types
         /// Fires the and forget safe asynchronous.
         /// </summary>
         /// <param name="task">The task.</param>
-        /// <param name="handler">The handler.</param>
-        public static async void FireAndForgetSafeAsync(this Task task, IErrorHandler handler = null)
-        {
-            try
-            {
-                await task;
-            }
-            catch (Exception ex)
-            {
-                handler?.HandleError(ex);
-            }
-        }
-
-        /// <summary>
-        /// Fires the and forget safe asynchronous.
-        /// </summary>
-        /// <param name="task">The task.</param>
         /// <param name="action">The handler.</param>
         public static async void FireAndForgetSafeAsync(this Task task, Action<Exception> action = null)
         {

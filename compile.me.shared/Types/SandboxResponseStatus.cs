@@ -11,9 +11,9 @@
         Unknown = -1,
 
         /// <summary>
-        /// In pending state, e.g it as yet to begin executing.
+        /// In a finished state, the sandbox is no longer running for any reason.
         /// </summary>
-        Pending = 1,
+        Finished = 1,
 
         /// <summary>
         /// In running state, the sandbox is currently running.
@@ -21,9 +21,9 @@
         Running = 2,
 
         /// <summary>
-        /// In a finished state, the sandbox is no longer running for any reason.
+        /// In pending state, e.g it as yet to begin executing.
         /// </summary>
-        Finished = 3,
+        Pending = 3,
 
         /// <summary>
         /// The sandbox exceeded its memory constraint limitations.
@@ -33,6 +33,6 @@
         /// <summary>
         /// The sandbox exceeded its time limit constraints.
         /// </summary>
-        TimeLimitExceeded = 5,
+        TimeLimitExceeded = 5
     }
 }

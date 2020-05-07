@@ -3,11 +3,12 @@
 # Based on Ubuntu
 ############################################################
 
-FROM chug/ubuntu14.04x64 
+FROM ubuntu:20.04
 
 # Update the repository sources list
 RUN echo "deb http://archive.ubuntu.com/ubuntu trusty main universe" > /etc/apt/sources.list
 RUN apt-get update
+
 #RUN apt-get upgrade
 #Install all the languages/compilers we are supporting.
 RUN apt-get install -y python

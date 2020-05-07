@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
@@ -55,7 +56,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The finalized response of the sandbox.
         /// </summary>
-        private SandboxResponse _sandboxResponse = new SandboxResponse();
+        private readonly SandboxResponse _sandboxResponse = new SandboxResponse();
 
         #endregion
 
@@ -199,16 +200,29 @@ namespace Compile.Me.Worker.Service
             // After the data is written and returned, the location will be deleted.
             Directory.CreateDirectory(this._sandboxCreationRequest.Path);
 
-            // Write down the source code for the given request. 
-            await File.WriteAllTextAsync(
-                Path.Join(this._sandboxCreationRequest.Path,
-                    $"{this._sandboxCreationRequest.Compiler.Language}.source"),
-                this._sandboxCreationRequest.SourceCode);
+            await using (var sourceFile = new StreamWriter(Path.Join(this._sandboxCreationRequest.Path,
+                $"{this._sandboxCreationRequest.Compiler.Language}.source")))
+            {
+                for (var i = 0; i < this._sandboxCreationRequest.SourceCode.Length; i++)
+                {
+                    await sourceFile.WriteAsync(this._sandboxCreationRequest.SourceCode[i]);
 
-            // Write down the standard input for the given request.
-            await File.WriteAllTextAsync(
-                Path.Join(this._sandboxCreationRequest.Path, $"{this._sandboxCreationRequest.Compiler.Language}.input"),
-                this._sandboxCreationRequest.StdinData);
+                    if (i != this._sandboxCreationRequest.SourceCode.Length - 1)
+                        await sourceFile.WriteAsync(Environment.NewLine);
+                }
+            }
+
+            await using (var stdinDataFile = new StreamWriter(Path.Join(this._sandboxCreationRequest.Path,
+                $"{this._sandboxCreationRequest.Compiler.Language}.input")))
+            {
+                for (var i = 0; i < this._sandboxCreationRequest.StdinData.Length; i++)
+                {
+                    await stdinDataFile.WriteAsync(this._sandboxCreationRequest.StdinData[i]);
+
+                    if (i != this._sandboxCreationRequest.StdinData.Length - 1)
+                        await stdinDataFile.WriteAsync(Environment.NewLine);
+                }
+            }
 
             // Create the empty files for standard output and standard error output for the request.
             // This just ensures that we are always going to expect it to exist. Resolving file related
@@ -247,46 +261,135 @@ namespace Compile.Me.Worker.Service
         /// Loads the response of the sandbox execution, the standard output.
         /// </summary>
         /// <returns>The standard output of the sandbox.</returns>
-        private string GetSandboxStandardOutput()
+        private async Task<string[]> GetSandboxStandardOutput()
         {
             var path = Path.Join(this._sandboxCreationRequest.Path,
                 this._sandboxCreationRequest.Compiler.StandardOutputFile);
-            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+
+            // If the file does not exist, no output is returned.
+            if (!File.Exists(path)) return new string[] { };
+
+            // Read up to 50 lines.
+            var maxStandardOutRead = this._sandboxCreationRequest.TestCase?.Length + 1 ?? 50;
+
+            var lines = new List<string>();
+
+            using var openFile = new StreamReader(path);
+
+            for (var i = 0; i < maxStandardOutRead; i++)
+            {
+                var line = await openFile.ReadLineAsync();
+                if (line == null) break;
+
+                lines.Add(line);
+            }
+
+            return lines.ToArray();
         }
+
 
         /// <summary>
         /// Loads the response of the sandbox error execution, the standard error output.
         /// </summary>
         /// <returns>The standard error output of the sandbox.</returns>
-        private string GetLoadSandboxStandardErrorOutput()
+        private async Task<string[]> GetLoadSandboxStandardErrorOutput()
         {
             var path = Path.Join(this._sandboxCreationRequest.Path,
                 this._sandboxCreationRequest.Compiler.StandardErrorFile);
-            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+
+
+            // If the file does not exist, no output is returned.
+            if (!File.Exists(path)) return new string[] { };
+
+            // Read up to 50 lines.
+            const int maxStandardOutRead = 50;
+
+            var lines = new List<string>();
+
+            using var openFile = new StreamReader(path);
+
+            for (var i = 0; i < maxStandardOutRead; i++)
+            {
+                var line = await openFile.ReadLineAsync();
+
+                // if we have met the end of the file before we have actually
+                // hit our max limit, break;
+                if (line == null) break;
+
+                lines.Add(line);
+            }
+
+            return lines.ToArray();
+        }
+
+        /// <summary>
+        /// Performs the checks to ensure that the given tests have passed or failed, returning the status.
+        /// </summary>
+        private CompilerTestResult GetTestCaseResponse()
+        {
+            Trace.Assert(this._sandboxResponse.StandardOutput != null);
+
+            // Mark that no tests have been run since no tests where provided.
+            if (this._sandboxCreationRequest.TestCase == null) return CompilerTestResult.NoTest;
+
+            // If we did not get the same amount of output expected as the test cases
+            // then we don't need to check since it has already failed.
+            // -1 since we echo out the end of the line.
+            if (this._sandboxResponse.StandardOutput.Length - 1 != this._sandboxCreationRequest.TestCase.Length)
+                return CompilerTestResult.Failed;
+
+            // ensure that all entry points, match the given standard out entries.
+            // performed on the test cases and not the output to ensure we don't check against
+            // the final line of the standard output.
+            return this._sandboxCreationRequest.TestCase
+                .Where((t, i) => !t.Equals(this._sandboxResponse.StandardOutput[i])).Any()
+                ? CompilerTestResult.Failed
+                : CompilerTestResult.Passed;
         }
 
         /// <summary>
         /// Get the response of the sandbox, can only be called once in removed state.
         /// </summary>
         /// <returns></returns>
-        public SandboxResponse GetResponse()
+        public async Task<SandboxResponse> GetResponse()
         {
             Trace.Assert(this.Status != ContainerStatus.Removed, "Sandbox response cannot be returned if not removed.");
 
-            if (this._sandboxStatus.ExceededMemoryLimit || this._sandboxStatus.ExceededTimeoutLimit)
+            try
             {
+                // Start  in a failed state, and update as and when it changes.
                 this._sandboxResponse.Result = SandboxResponseResult.Failed;
-                this._sandboxResponse.Status = this._sandboxStatus.ExceededMemoryLimit
-                    ? SandboxResponseStatus.MemoryConstraintExceeded
-                    : SandboxResponseStatus.TimeLimitExceeded;
-            }
-            else
-            {
                 this._sandboxResponse.Status = SandboxResponseStatus.Finished;
-                this._sandboxResponse.Result = SandboxResponseResult.Succeeded;
-            }
 
-            return this._sandboxResponse;
+                if (this._sandboxStatus.ExceededMemoryLimit || this._sandboxStatus.ExceededTimeoutLimit)
+                {
+                    this._sandboxResponse.Status = this._sandboxStatus.ExceededMemoryLimit
+                        ? SandboxResponseStatus.MemoryConstraintExceeded
+                        : SandboxResponseStatus.TimeLimitExceeded;
+
+                    return this._sandboxResponse;
+                }
+
+                this._sandboxResponse.StandardErrorOutput = await this.GetLoadSandboxStandardErrorOutput();
+
+                // If error exists, then don't bother loading the standard output.
+                if (this._sandboxResponse.StandardErrorOutput != null &&
+                    this._sandboxResponse.StandardErrorOutput.Any())
+                    return this._sandboxResponse;
+
+                this._sandboxResponse.StandardOutput = await this.GetSandboxStandardOutput();
+                this._sandboxResponse.TestResult = this.GetTestCaseResponse();
+
+                // If the tests failed, then we can return out.
+                if (this._sandboxResponse.TestResult == CompilerTestResult.Failed) return this._sandboxResponse;
+
+                this._sandboxResponse.Result = SandboxResponseResult.Succeeded;
+                return this._sandboxResponse;
+            }
+            finally
+            {
+                this.Cleanup();
+            }
         }
 
 
@@ -370,9 +473,6 @@ namespace Compile.Me.Worker.Service
         {
             this._timeoutTimer.Stop();
 
-            this._sandboxResponse.StandardOutput = this.GetSandboxStandardOutput();
-            this._sandboxResponse.StandardErrorOutput = this.GetLoadSandboxStandardErrorOutput();
-
             // Ensure that the status is the last thing updated, since this will trigger the
             // event, and we don't want the worker service knowing we are "killed" until
             // ready.
@@ -384,8 +484,6 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private void HandleContainerRemoved()
         {
-            this.Cleanup();
-
             // Ensure that the status is the last thing updated, since this will trigger the
             // event, and we don't want the worker service knowing we are "removed" until we
             // have loaded the data ready for finishing.

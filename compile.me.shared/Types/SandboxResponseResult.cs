@@ -15,6 +15,6 @@
         /// <summary>
         /// The sandbox execution failed for any number of reasons, check the status.
         /// </summary>
-        Failed = 2,
+        Failed = 2
     }
 }

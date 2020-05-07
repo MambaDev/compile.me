@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
 using Compile.Me.Shared.Modals;
+using Compile.Me.Shared.Types;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -32,13 +33,12 @@ namespace Compile.Me.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> Get()
         {
-            await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest()
-            {
-                Compiler = "python",
-                Id = Guid.NewGuid(),
-                SourceCode = "print('hello! {}'.format(input()))",
-                StdinData = "bob",
-            });
+            await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(
+                Guid.NewGuid(),
+                CompileRequestType.SingleTest, 3, 128,
+                new[] {"print('Hello: {}!'.format(input()))"}, "python",
+                new CompileSourceTestBody(new[] {"bob"}, new[] {"Hello: Bob!"}))
+            );
 
             return this.Ok();
         }

@@ -7,12 +7,17 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The raw output that was produced by the sandbox.
         /// </summary>
-        public string StandardOutput { get; set; }
+        public string[] StandardOutput { get; set; }
 
         /// <summary>
         /// The raw error output that was produced by the sandbox.
         /// </summary>
-        public string StandardErrorOutput { get; set; }
+        public string[] StandardErrorOutput { get; set; }
+
+        /// <summary>
+        /// The related test result for the given compile, only relevant if tests are being used.
+        /// </summary>
+        public CompilerTestResult TestResult { get; set; } = CompilerTestResult.Unknown;
 
         /// <summary>
         /// The result of the sandbox.
