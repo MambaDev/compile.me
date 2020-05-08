@@ -1,7 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.ComponentModel.Design.Serialization;
-using System.Net;
-using System.Xml.XPath;
 using Compile.Me.Shared.Types;
 using Compile.Me.Worker.Service.Types.Compile;
 
@@ -14,6 +11,14 @@ namespace Compile.Me.Worker.Service.Types.SingleTest
         /// </summary>
         public CompilerTestCaseResult TestCaseResult { get; set; }
 
+        /// <summary>
+        /// Creates a ne instance of the sandbox compile response. 
+        /// </summary>
+        /// <param name="standardOutput">The standard out.</param>
+        /// <param name="standardErrorOutput">The standard error out.</param>
+        /// <param name="compilerResult">The result of the compiling.</param>
+        /// <param name="sandboxResponseStatus">The status of the sandbox.</param>
+        /// <param name="testCaseResult">The result of the test case.</param>
         public SandboxSingleTestResponse(IReadOnlyList<string> standardOutput,
             IReadOnlyList<string> standardErrorOutput, CompilerResult compilerResult,
             SandboxResponseStatus sandboxResponseStatus, CompilerTestCaseResult testCaseResult) : base(standardOutput,
@@ -37,8 +42,7 @@ namespace Compile.Me.Worker.Service.Types.SingleTest
             CompilerTestCaseResult testCaseResult = null)
         {
             var singletTestResponse = new SandboxSingleTestResponse(response.StandardOutput,
-                response.StandardErrorOutput,
-                response.Result, response.Status, testCaseResult);
+                response.StandardErrorOutput, response.Result, response.Status, testCaseResult);
 
             if (testCaseResult == null || testCaseResult.Result != CompilerTestResult.Failed)
                 return singletTestResponse;

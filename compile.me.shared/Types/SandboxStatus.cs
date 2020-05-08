@@ -1,4 +1,6 @@
-﻿namespace Compile.Me.Shared.Types
+﻿using Newtonsoft.Json;
+
+namespace Compile.Me.Shared.Types
 {
     public class SandboxStatus
     {

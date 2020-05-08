@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace Compile.Me.Shared.Types
 {
@@ -32,21 +33,25 @@ namespace Compile.Me.Shared.Types
         /// <summary>
         /// The id of the test.
         /// </summary>
+        [JsonProperty("id")]
         public Guid Id { get; set; }
 
         /// <summary>
         /// The result of the test.
         /// </summary>
+        [JsonProperty("result")]
         public CompilerTestResult Result { get; set; }
 
         /// <summary>
         /// The raw output that was produced by the sandbox.
         /// </summary>
+        [JsonProperty("standard_output")]
         public IReadOnlyList<string> StandardOutput { get; set; }
 
         /// <summary>
         /// The raw error output that was produced by the sandbox.
         /// </summary>
+        [JsonProperty("standard_error_output")]
         public IReadOnlyList<string> StandardErrorOutput { get; set; }
 
         /// <summary>

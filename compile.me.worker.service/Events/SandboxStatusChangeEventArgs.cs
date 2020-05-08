@@ -7,12 +7,12 @@ namespace Compile.Me.Worker.Service.Events
         /// <summary>
         /// The id of the container / sandbox that had the updated status.
         /// </summary>
-        public string Id { get; private set; }
+        public string Id { get; }
 
         /// <summary>
         /// The updated status.
         /// </summary>
-        public ContainerStatus Status { get; private set; }
+        public ContainerStatus Status { get; }
 
         /// <summary>
         /// Creates a new instance of the status update event args for the sandbox.

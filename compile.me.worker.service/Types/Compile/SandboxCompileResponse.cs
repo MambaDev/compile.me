@@ -25,6 +25,13 @@ namespace Compile.Me.Worker.Service.Types.Compile
         /// </summary>
         public SandboxResponseStatus Status { get; set; } = SandboxResponseStatus.Unknown;
 
+        /// <summary>
+        /// Creates a ne instance of the sandbox compile response. 
+        /// </summary>
+        /// <param name="standardOutput">The standard out.</param>
+        /// <param name="standardErrorOutput">The standard error out.</param>
+        /// <param name="compilerResult">The result of the compiling.</param>
+        /// <param name="sandboxResponseStatus">The status of the sandbox.</param>
         public SandboxCompileResponse(IReadOnlyList<string> standardOutput, IReadOnlyList<string> standardErrorOutput,
             CompilerResult compilerResult, SandboxResponseStatus sandboxResponseStatus)
         {

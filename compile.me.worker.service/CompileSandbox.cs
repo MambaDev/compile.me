@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
@@ -262,7 +261,7 @@ namespace Compile.Me.Worker.Service
         /// Loads the response of the sandbox execution, the standard output.
         /// </summary>
         /// <returns>The standard output of the sandbox.</returns>
-        private async Task<string[]> GetSandboxStandardOutput()
+        private async Task<IReadOnlyList<string>> GetSandboxStandardOutput()
         {
             var path = Path.Join(this.SandboxCompileRequest.Path,
                 this.SandboxCompileRequest.Compiler.StandardOutputFile);
@@ -285,7 +284,7 @@ namespace Compile.Me.Worker.Service
                 lines.Add(line);
             }
 
-            return lines.ToArray();
+            return lines;
         }
 
 
@@ -293,7 +292,7 @@ namespace Compile.Me.Worker.Service
         /// Loads the response of the sandbox error execution, the standard error output.
         /// </summary>
         /// <returns>The standard error output of the sandbox.</returns>
-        private async Task<string[]> GetLoadSandboxStandardErrorOutput()
+        private async Task<IReadOnlyList<string>> GetLoadSandboxStandardErrorOutput()
         {
             var path = Path.Join(this.SandboxCompileRequest.Path,
                 this.SandboxCompileRequest.Compiler.StandardErrorFile);
@@ -320,7 +319,7 @@ namespace Compile.Me.Worker.Service
                 lines.Add(line);
             }
 
-            return lines.ToArray();
+            return lines;
         }
 
 

@@ -25,7 +25,7 @@ standard_error_out=$7
 #	- The output of the stream is then sent to respective files
 #
 #
-#	- if third arguemtn is empty Branch 1 is followed. An interpretor was called
+#	- if third argument is empty Branch 1 is followed. An interpreter was called
 #	- else Branch2 is followed, a compiler was invoked
 #	- In Branch2. We first check if the compile operation was a success (code returned 0)
 #

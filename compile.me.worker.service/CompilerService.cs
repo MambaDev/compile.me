@@ -6,12 +6,14 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
-using Compile.Me.Shared.Modals;
 using compile.me.shared.Modals.SourceCompile;
 using compile.me.shared.Requests;
+using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
+using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
 using Compile.Me.Worker.Service.Events;
+using Compile.Me.Worker.Service.Types;
 using Compile.Me.Worker.Service.Types.Compile;
 using Compile.Me.Worker.Service.Types.SingleTest;
 using Docker.DotNet;
@@ -64,11 +66,10 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private Consumer _consumer;
 
-
         /// <summary>
         /// A list of the current executing sandbox devices.
         /// </summary>
-        private List<CompileSandbox> _executingSandboxes = new List<CompileSandbox>();
+        private readonly List<CompileSandbox> _executingSandboxes = new List<CompileSandbox>();
 
         #endregion
 
@@ -78,6 +79,7 @@ namespace Compile.Me.Worker.Service
         /// <param name="logger">The logger for the service.</param>
         /// <param name="applicationLifetime">The application lifetime.</param>
         /// <param name="configuration">The application configuration.</param>
+        /// <param name="publisher">The queue publisher used to sent messages into the queue.</param>
         public CompilerService(ILogger<CompilerService> logger, IHostApplicationLifetime applicationLifetime,
             IConfiguration configuration, CompilerPublisher publisher)
         {
@@ -121,7 +123,7 @@ namespace Compile.Me.Worker.Service
             // Take the inner body and case it to a single compile request body.
             var sandboxCreationRequest = new SandboxSingleTestCreationRequest(request.Id, request.TimeoutSeconds,
                 request.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/",
-                request.SourceCode, request.TestCase, compiler);
+                request.SourceCode, compiler, request.TestCase);
 
             var sandbox = new SingleTestSandbox(this._logger, this._dockerClient, sandboxCreationRequest);
             this._executingSandboxes.Add(sandbox);
@@ -138,11 +140,9 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="request">The request that will contain the compile details.</param>
         /// <param name="compiler">The compiler being used for the process.</param>
-        internal Task HandleMultipleCompileTestSandboxRequest(CompileSourceRequest request, Compiler compiler)
+        internal Task HandleMultipleCompileTestSandboxRequest(MultipleCompileTestsSourceRequest request,
+            Compiler compiler)
         {
-            // Take the inner body and case it to a single compile request body.
-            // var innerContent = ((JObject) request.Content).ToObject<CompileSourceMultipleTestBody>();
-
             throw new NotImplementedException();
         }
 
@@ -153,7 +153,7 @@ namespace Compile.Me.Worker.Service
         /// <param name="request">The request that will contain the compile details.</param>
         /// <param name="compiler">The compiler being used for the process.</param>
         /// <returns></returns>
-        internal Task HandleMultipleParallelCompileTestSandboxRequest(CompileSourceRequest request,
+        internal Task HandleMultipleParallelCompileTestSandboxRequest(MultipleCompileTestsSourceRequest request,
             Compiler compiler)
         {
             throw new NotImplementedException();
@@ -209,18 +209,16 @@ namespace Compile.Me.Worker.Service
         {
             var sandbox = this._executingSandboxes.First(e => e.ContainerId == containerId);
 
-
             sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
             this._executingSandboxes.Remove(sandbox);
 
             if (sandbox is SingleTestSandbox singleTestSandbox)
             {
-                var response = (SandboxSingleTestResponse) await singleTestSandbox.GetResponse();
+                var response = await singleTestSandbox.GetResponse();
                 var compileResponse = new CompileTestSourceResponse(singleTestSandbox.RequestId, response.Result,
                     response.Status, response.TestCaseResult);
 
-                this._logger.LogInformation(
-                    $"single test: {JsonConvert.SerializeObject(compileResponse, Formatting.Indented, new JsonSerializerSettings() {Converters = new List<JsonConverter>() {new StringEnumConverter()}})}");
+                this._logger.LogInformation($"single test: {JsonConvert.SerializeObject(compileResponse)}");
                 await this._publisher.PublishSingleTestCompileSourceResponse(compileResponse);
             }
             else
@@ -274,10 +272,7 @@ namespace Compile.Me.Worker.Service
         private void OnStart()
         {
             this._logger.LogInformation(("onStart has been called."));
-            this._consumer = new Consumer("compiling", "request", new Config()
-            {
-                MaxInFlight = 2
-            });
+            this._consumer = new Consumer("compiling", "request", new Config {MaxInFlight = 2});
 
             this._consumer.AddHandler(new CompileQueueMessageHandler(this._logger, this), 4);
             this._consumer.ConnectToNSQLookupd(this._configuration.Consumer);
@@ -315,11 +310,6 @@ namespace Compile.Me.Worker.Service
         private readonly CompilerService _compileService;
 
         /// <summary>
-        /// The lock instance
-        /// </summary>
-        private readonly object LockInstance = new object();
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="CompileQueueMessageHandler" /> class.
         /// </summary>
         /// <param name="logger">The logger.</param>
@@ -344,35 +334,38 @@ namespace Compile.Me.Worker.Service
             var compiler = Constants.Compilers.FirstOrDefault(e => e.Language == compileRequest.CompilerName);
 
             Trace.Assert(compiler != null);
+            Task compilingTask;
 
             switch (compileRequest.Type)
             {
                 case CompileRequestType.Compile:
-                    var singleRequest =
-                        JsonConvert.DeserializeObject<CompileSourceRequest>(stringMessage);
-
-                    this._compileService.HandleSingleCompileSandboxRequest(singleRequest, compiler)
-                        .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
+                    var compile = JsonConvert.DeserializeObject<CompileSourceRequest>(stringMessage);
+                    compilingTask = this._compileService.HandleSingleCompileSandboxRequest(compile, compiler);
                     break;
                 case CompileRequestType.SingleTest:
-                    var singleTestRequest =
-                        JsonConvert.DeserializeObject<CompileTestSourceRequest>(stringMessage);
-
-
-                    this._compileService.HandleSingleCompileTestSandboxRequest(singleTestRequest, compiler)
-                        .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
+                {
+                    var single = JsonConvert.DeserializeObject<CompileTestSourceRequest>(stringMessage);
+                    compilingTask = this._compileService.HandleSingleCompileTestSandboxRequest(single, compiler);
                     break;
-                // case CompileRequestType.MultipleTests:
-                //     this._compileService.HandleMultipleCompileTestSandboxRequest(compileRequest, compiler)
-                //         .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
-                //     break;
-                // case CompileRequestType.ParallelMultipleTests:
-                //     this._compileService.HandleMultipleParallelCompileTestSandboxRequest(compileRequest, compiler)
-                //         .FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
-                //     break;
+                }
+                case CompileRequestType.MultipleTests:
+                {
+                    var multi = JsonConvert.DeserializeObject<MultipleCompileTestsSourceRequest>(stringMessage);
+                    compilingTask = this._compileService.HandleMultipleCompileTestSandboxRequest(multi, compiler);
+                    break;
+                }
+                case CompileRequestType.ParallelMultipleTests:
+                {
+                    var multiParallel = JsonConvert.DeserializeObject<MultipleCompileTestsSourceRequest>(stringMessage);
+                    compilingTask = this._compileService.HandleMultipleParallelCompileTestSandboxRequest(multiParallel,
+                        compiler);
+                    break;
+                }
                 default:
                     throw new ArgumentOutOfRangeException();
             }
+
+            compilingTask.FireAndForgetSafeAsync(this.HandleFailedSandboxCreationRequest);
 
             message.Finish();
         }
@@ -380,20 +373,12 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// Handles the case in which the sandbox request could not be created.
         /// </summary>
-        private void HandleFailedSandboxCreationRequest(Exception e)
-        {
-            this._logger.LogError(e.Message);
-        }
-
+        private void HandleFailedSandboxCreationRequest(Exception e) => this._logger.LogError(e.Message);
 
         /// <summary>
         /// Called when a message has exceeded the specified <see cref="Config.MaxAttempts" />.
         /// </summary>
         /// <param name="message">The failed message.</param>
-        public void LogFailedMessage(IMessage message)
-        {
-            var msg = Encoding.UTF8.GetString(message.Body);
-            this._logger.LogError(msg);
-        }
+        public void LogFailedMessage(IMessage message) => this._logger.LogError(Encoding.UTF8.GetString(message.Body));
     }
 }

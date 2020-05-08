@@ -1,7 +1,8 @@
 ﻿using System;
 using Compile.Me.Shared.Types;
+using Newtonsoft.Json;
 
-namespace Compile.Me.Shared.Modals
+namespace compile.me.shared.Requests
 {
     public class CompileResponseBase
     {
@@ -9,11 +10,13 @@ namespace Compile.Me.Shared.Modals
         /// The id of the compiler request, this will be used when updating / sending the data back
         /// into the queue.
         /// </summary>
+        [JsonProperty("id")]
         public Guid Id { get; set; }
 
         /// <summary>
         /// The result of the sandbox.
         /// </summary>
+        [JsonProperty("result")]
         public CompilerResult Result { get; set; }
 
         /// <summary>

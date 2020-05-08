@@ -16,13 +16,13 @@ namespace Compile.Me.Worker.Service
         /// The request that will be processed for the given sandbox. Including all the required code and compiler
         /// information that will be used.
         /// </summary>
-        private new readonly SandboxSingleTestCreationRequest _sandboxCompileRequest;
+        private readonly SandboxSingleTestCreationRequest _sandboxSingleTestCompileRequest;
 
         public SingleTestSandbox(ILogger<CompilerService> logger, DockerClient dockerClient,
             SandboxSingleTestCreationRequest sandboxSingleTestCreationRequest) : base(logger, dockerClient,
             sandboxSingleTestCreationRequest)
         {
-            this._sandboxCompileRequest = sandboxSingleTestCreationRequest;
+            this._sandboxSingleTestCompileRequest = sandboxSingleTestCreationRequest;
         }
 
         /// <inheritdoc cref="CompileSandbox.GetResponse"/>
@@ -48,19 +48,19 @@ namespace Compile.Me.Worker.Service
 
             var response = new CompilerTestCaseResult
             {
-                Id = this._sandboxCompileRequest.TestCase.Id,
+                Id = this._sandboxSingleTestCompileRequest.TestCase.Id,
                 StandardOutput = this.SandboxCompileResponse.StandardOutput,
                 StandardErrorOutput = this.SandboxCompileResponse.StandardErrorOutput,
             };
 
             // Mark that no tests have been run since no tests where provided.
-            if (this._sandboxCompileRequest.TestCase == null) return null;
+            if (this._sandboxSingleTestCompileRequest.TestCase == null) return null;
 
             // If we did not get the same amount of output expected as the test cases
             // then we don't need to check since it has already failed.
             // -1 since we echo out the end of the line.
             if (this.SandboxCompileResponse.StandardOutput.Count - 1 !=
-                this._sandboxCompileRequest.TestCase.ExpectedStandardDataOut.Count)
+                this._sandboxSingleTestCompileRequest.TestCase.ExpectedStandardDataOut.Count)
             {
                 response.Result = CompilerTestResult.Failed;
                 return response;
@@ -69,7 +69,7 @@ namespace Compile.Me.Worker.Service
             // ensure that all entry points, match the given standard out entries.
             // performed on the test cases and not the output to ensure we don't check against
             // the final line of the standard output.
-            var passState = this._sandboxCompileRequest.TestCase.ExpectedStandardDataOut
+            var passState = this._sandboxSingleTestCompileRequest.TestCase.ExpectedStandardDataOut
                 .Where((t, i) => !t.Equals(this.SandboxCompileResponse.StandardOutput[i])).Any()
                 ? CompilerTestResult.Failed
                 : CompilerTestResult.Passed;

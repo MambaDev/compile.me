@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using Compile.Me.Shared.Types;
 
-namespace Compile.Me.Worker.Service
+namespace Compile.Me.Worker.Service.Types
 {
     public class SandboxCreationRequestBase
     {

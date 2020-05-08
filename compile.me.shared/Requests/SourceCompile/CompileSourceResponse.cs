@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using Compile.Me.Shared.Modals;
+using compile.me.shared.Requests;
 using Compile.Me.Shared.Types;
+using Newtonsoft.Json;
 
 namespace compile.me.shared.Modals.SourceCompile
 {
@@ -10,16 +11,19 @@ namespace compile.me.shared.Modals.SourceCompile
         /// <summary>
         /// The raw output that was produced by the sandbox.
         /// </summary>
+        [ JsonProperty("standard_output")]
         public IReadOnlyList<string> StandardOutput { get; set; }
 
         /// <summary>
         /// The raw error output that was produced by the sandbox.
         /// </summary>
+        [ JsonProperty("standard_error_output")]
         public IReadOnlyList<string> StandardErrorOutput { get; set; }
 
         /// <summary>
         /// The given status of the sandbox.
         /// </summary>
+        [ JsonProperty("status")]
         public SandboxResponseStatus Status { get; set; }
 
         /// <inheritdoc cref="CompileResponseBase"/>
