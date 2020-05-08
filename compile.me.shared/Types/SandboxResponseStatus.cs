@@ -33,6 +33,11 @@
         /// <summary>
         /// The sandbox exceeded its time limit constraints.
         /// </summary>
-        TimeLimitExceeded = 5
+        TimeLimitExceeded = 5,
+
+        /// <summary>
+        /// The sandbox related test failed to pass.
+        /// </summary>
+        TestFailed = 6
     }
 }

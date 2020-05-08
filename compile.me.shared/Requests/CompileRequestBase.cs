@@ -1,10 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using Compile.Me.Shared.Types;
-using Newtonsoft.Json.Linq;
 
-namespace Compile.Me.Shared.Modals
+namespace compile.me.shared.Requests
 {
-    public class CompileSourceRequest
+    public class CompileRequestBase
     {
         /// <summary>
         /// The id of the compiler request, this will be used when updating / sending the data back
@@ -22,44 +22,27 @@ namespace Compile.Me.Shared.Modals
         /// for longer than the given timeout then the code is rejected. This is used to ensure that the
         /// source code is not running for longer than required.
         /// </summary>
-        public int TimeoutSeconds { get; set; } = 2;
+        public uint TimeoutSeconds { get; set; } = 2;
 
         /// <summary>
         /// The upper limit of the max amount of memory that the given execution can perform. By default, the upper
         /// limit of the amount of mb the given execution can run with.
         /// </summary>
-        public long MemoryConstraint { get; set; } = 128;
+        public uint MemoryConstraint { get; set; } = 128;
 
         /// <summary>
         /// The source code that will be executed, this is the code that will be written to the path and
         /// mounted to the docker container.
         /// </summary>
-        public string[] SourceCode { get; set; }
+        public IReadOnlyList<string> SourceCode { get; set; }
 
         /// <summary>
         ///  The name of the compiler being used.
         /// </summary>
         public string CompilerName { get; set; }
 
-        /// <summary>
-        ///  The related content for the given request type, this will be based on the given type
-        /// and will be casted before use. Ensure this is the correct content for the correct
-        /// type otherwise the request will fail.
-        /// </summary>
-        public object Content { get; set; }
-
-        /// <summary>
-        /// Creates a new instance of the compile source code request.
-        /// </summary>
-        /// <param name="id">The id of the request.</param>
-        /// <param name="type">The type of the request.</param>
-        /// <param name="timeoutSeconds">The timeout of the request in seconds.</param>
-        /// <param name="memoryConstraint">The memory constraint in mb.</param>
-        /// <param name="sourceCode">The source code of the request.</param>
-        /// <param name="compilerName">The compilers name.</param>
-        /// <param name="content">The additional request content related to the type.</param>
-        public CompileSourceRequest(Guid id, CompileRequestType type, int timeoutSeconds, long memoryConstraint,
-            string[] sourceCode, string compilerName, object content)
+        public CompileRequestBase(Guid id, CompileRequestType type, uint timeoutSeconds, uint memoryConstraint,
+            IReadOnlyList<string> sourceCode, string compilerName)
         {
             this.Id = id;
             this.Type = type;
@@ -67,13 +50,9 @@ namespace Compile.Me.Shared.Modals
             this.MemoryConstraint = memoryConstraint;
             this.SourceCode = sourceCode;
             this.CompilerName = compilerName;
-            this.Content = content;
         }
 
-        /// <summary>
-        /// Creates a new instance of the compile source code request.
-        /// </summary>       
-        public CompileSourceRequest()
+        public CompileRequestBase()
         {
         }
     }

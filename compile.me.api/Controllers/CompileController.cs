@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
 using Compile.Me.Shared.Modals;
+using compile.me.shared.Modals.SourceCompile;
+using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.HttpSys;
@@ -11,9 +14,9 @@ namespace Compile.Me.Api.Controllers
 {
     public class CompileRequest
     {
-        public string[] Source { get; set; }
-        public string[] Input { get; set; }
-        public string[] Tests { get; set; }
+        public IReadOnlyList<string> Source { get; set; }
+        public IReadOnlyList<string> Input { get; set; }
+        public IReadOnlyList<string> Tests { get; set; }
         public string Language { get; set; }
     }
 
@@ -41,9 +44,12 @@ namespace Compile.Me.Api.Controllers
         public async Task<IActionResult> CompileSource([FromBody] CompileRequest request)
         {
             await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(Guid.NewGuid(),
-                CompileRequestType.Compile, 3, 128, request.Source, request.Language,
-                new CompileSourceBody(request.Input))
-            );
+                3, 128, request.Source, request.Input, request.Language));
+
+            await this._compilerPublisher.PublishSingleTestCompileSourceRequest(new CompileTestSourceRequest(
+                Guid.NewGuid(), 3, 128, request.Source,
+                new CompilerTestCase(Guid.NewGuid(), request.Input, request.Tests),
+                request.Language));
 
             return this.Ok();
         }

@@ -1,5 +1,7 @@
 ﻿using System.Threading.Tasks;
 using Compile.Me.Shared.Modals;
+using compile.me.shared.Modals.SourceCompile;
+using compile.me.shared.Requests.TestSourceCompile;
 using Newtonsoft.Json;
 using PureNSQSharp;
 
@@ -61,14 +63,30 @@ namespace Compile.Me.Shared
         {
             await this._producer.PublishAsync("compiling", JsonConvert.SerializeObject(request));
         }
-        
-        
+
+        /// <summary>
+        /// Publishes a request to compile and execute the code with support of a singlet test case.
+        /// </summary>
+        /// <param name="request">The request that would be compiled.</param>
+        public async Task PublishSingleTestCompileSourceRequest(CompileTestSourceRequest request)
+        {
+            await this._producer.PublishAsync("compiling", JsonConvert.SerializeObject(request));
+        }
 
         /// <summary>
         /// Publishes a response to a compile request.
         /// </summary>
         /// <param name="response">The response that has been compiled.</param>
         public async Task PublishCompileSourceResponse(CompileSourceResponse response)
+        {
+            await this._producer.PublishAsync("compiled", JsonConvert.SerializeObject(response));
+        }
+
+        /// <summary>
+        /// Publishes a response to a compiled and tested response.
+        /// </summary>
+        /// <param name="response">The response that has been compiled.</param>
+        public async Task PublishSingleTestCompileSourceResponse(CompileTestSourceResponse response)
         {
             await this._producer.PublishAsync("compiled", JsonConvert.SerializeObject(response));
         }

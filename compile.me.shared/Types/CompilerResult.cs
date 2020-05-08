@@ -1,6 +1,6 @@
 ﻿namespace Compile.Me.Shared.Types
 {
-    public enum SandboxResponseResult
+    public enum CompilerResult
     {
         /// <summary>
         /// In a unknown state.
