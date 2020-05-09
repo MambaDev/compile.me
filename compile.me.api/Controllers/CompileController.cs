@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
 using compile.me.shared.Modals.SourceCompile;
+using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
 using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
@@ -15,8 +16,8 @@ namespace Compile.Me.Api.Controllers
     public class CompileRequest
     {
         public IReadOnlyList<string> Source { get; set; }
-        public IReadOnlyList<string> Input { get; set; }
-        public IReadOnlyList<string> Tests { get; set; }
+        public IReadOnlyList<IReadOnlyList<string>> Input { get; set; }
+        public IReadOnlyList<IReadOnlyList<string>> Tests { get; set; }
         public string Language { get; set; }
     }
 
@@ -43,12 +44,20 @@ namespace Compile.Me.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CompileSource([FromBody] CompileRequest request)
         {
-            await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(Guid.NewGuid(),
-                3, 128, request.Source, request.Input, request.Language));
+            // await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(Guid.NewGuid(),
+            //     3, 128, request.Source, request.Input, request.Language));
 
-            await this._compilerPublisher.PublishSingleTestCompileSourceRequest(
-                new CompileTestSourceRequest(Guid.NewGuid(), 3, 128, request.Source, request.Language,
-                    new CompilerTestCase(Guid.NewGuid(), request.Input, request.Tests)));
+
+            var testCases = new List<CompilerTestCase>();
+
+            for (var i = 0; i < request.Tests.Count; i++)
+            {
+                testCases.Add(new CompilerTestCase(Guid.NewGuid(), request.Input[i], request.Tests[i]));
+            }
+
+            await this._compilerPublisher.PublishMultipleTestCompileSourceRequest(
+                new CompileMultipleTestsSourceRequest(Guid.NewGuid(), 3, 128, request.Source,
+                    request.Language, testCases));
 
             return this.Ok();
         }

@@ -28,9 +28,5 @@ namespace Compile.Me.Worker.Service.Types.SingleTest
         {
             this.TestCase = testCase;
         }
-
-        public SandboxSingleTestCreationRequest()
-        {
-        }
     }
 }

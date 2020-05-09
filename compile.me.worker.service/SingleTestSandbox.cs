@@ -1,9 +1,8 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Compile.Me.Shared.Types;
-using Compile.Me.Worker.Service.Types.Compile;
 using Compile.Me.Worker.Service.Types.SingleTest;
 using Docker.DotNet;
 using Microsoft.Extensions.Logging;
@@ -18,7 +17,7 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private readonly SandboxSingleTestCreationRequest _sandboxSingleTestCompileRequest;
 
-        public SingleTestSandbox(ILogger<CompilerService> logger, DockerClient dockerClient,
+        public SingleTestSandbox(ILogger logger, DockerClient dockerClient,
             SandboxSingleTestCreationRequest sandboxSingleTestCreationRequest) : base(logger, dockerClient,
             sandboxSingleTestCreationRequest)
         {
@@ -29,12 +28,11 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         ///  Gets the standard response including the test result.
         /// </summary>
-        public new async Task<SandboxSingleTestResponse> GetResponse()
+        public new SandboxSingleTestResponse GetResponse()
         {
-            var baseResponse = await base.GetResponse();
-
-            var singleTestResponse = SandboxSingleTestResponse.FromSandboxCompileResponse(
-                baseResponse, this.GetTestCaseResponse());
+            var baseResponse = base.GetResponse();
+            var testResult = this.GetTestCaseResponse(baseResponse.StandardOutput, baseResponse.StandardErrorOutput);
+            var singleTestResponse = SandboxSingleTestResponse.FromSandboxCompileResponse(baseResponse, testResult);
 
             return singleTestResponse;
         }
@@ -42,15 +40,16 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// Performs the checks to ensure that the given tests have passed or failed, returning the status.
         /// </summary>
-        private CompilerTestCaseResult GetTestCaseResponse()
+        private CompilerTestCaseResult GetTestCaseResponse(IReadOnlyList<string> standardOut,
+            IReadOnlyList<string> errorOut)
         {
-            Trace.Assert(this.SandboxCompileResponse.StandardOutput != null);
+            Trace.Assert(standardOut != null);
 
             var response = new CompilerTestCaseResult
             {
                 Id = this._sandboxSingleTestCompileRequest.TestCase.Id,
-                StandardOutput = this.SandboxCompileResponse.StandardOutput,
-                StandardErrorOutput = this.SandboxCompileResponse.StandardErrorOutput,
+                StandardOutput = standardOut,
+                StandardErrorOutput = errorOut,
             };
 
             // Mark that no tests have been run since no tests where provided.
@@ -59,8 +58,7 @@ namespace Compile.Me.Worker.Service
             // If we did not get the same amount of output expected as the test cases
             // then we don't need to check since it has already failed.
             // -1 since we echo out the end of the line.
-            if (this.SandboxCompileResponse.StandardOutput.Count - 1 !=
-                this._sandboxSingleTestCompileRequest.TestCase.ExpectedStandardDataOut.Count)
+            if (standardOut.Count - 1 != this._sandboxSingleTestCompileRequest.TestCase.ExpectedStandardDataOut.Count)
             {
                 response.Result = CompilerTestResult.Failed;
                 return response;
@@ -70,7 +68,7 @@ namespace Compile.Me.Worker.Service
             // performed on the test cases and not the output to ensure we don't check against
             // the final line of the standard output.
             var passState = this._sandboxSingleTestCompileRequest.TestCase.ExpectedStandardDataOut
-                .Where((t, i) => !t.Equals(this.SandboxCompileResponse.StandardOutput[i])).Any()
+                .Where((t, i) => !t.Equals(standardOut[i])).Any()
                 ? CompilerTestResult.Failed
                 : CompilerTestResult.Passed;
 

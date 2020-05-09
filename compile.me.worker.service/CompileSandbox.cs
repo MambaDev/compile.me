@@ -33,7 +33,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The logger
         /// </summary>
-        private readonly ILogger<CompilerService> _logger;
+        private readonly ILogger _logger;
 
         /// <summary>
         /// The related docker system event messages that are related to this sandbox/container.
@@ -51,12 +51,7 @@ namespace Compile.Me.Worker.Service
         /// The request that will be processed for the given sandbox. Including all the required code and compiler
         /// information that will be used.
         /// </summary>
-        protected readonly SandboxCompileCreationRequest SandboxCompileRequest;
-
-        /// <summary>
-        /// The finalized response of the sandbox.
-        /// </summary>
-        protected readonly SandboxCompileResponse SandboxCompileResponse = new SandboxCompileResponse();
+        private readonly SandboxCompileCreationRequest _request;
 
         #endregion
 
@@ -86,7 +81,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The id of the request, used to perform related correlation between the request and the response.
         /// </summary>
-        public Guid RequestId => this.SandboxCompileRequest.Id;
+        public Guid RequestId => this._request.Id;
 
         #endregion
 
@@ -94,18 +89,18 @@ namespace Compile.Me.Worker.Service
         /// Creates a new instance of the sandbox.
         /// </summary>
         /// <param name="dockerClient">The workers docker client that will be used to create the underlining container</param>
-        /// <param name="sandboxCompileRequest">The requesting information for the given sandbox.</param>
+        /// <param name="request">The requesting information for the given sandbox.</param>
         /// <param name="logger">The workers logger that will be used to log information</param>
-        public CompileSandbox(ILogger<CompilerService> logger, DockerClient dockerClient,
-            SandboxCompileCreationRequest sandboxCompileRequest)
+        public CompileSandbox(ILogger logger, DockerClient dockerClient,
+            SandboxCompileCreationRequest request)
         {
             this._logger = logger;
             this._dockerClient = dockerClient;
-            this.SandboxCompileRequest = sandboxCompileRequest;
+            this._request = request;
 
             // Setup the timeout timer for removing and stopping the container if its still executing after this
             // time limit.
-            this._timeoutTimer = new System.Timers.Timer(this.SandboxCompileRequest.TimeoutSeconds * 1000)
+            this._timeoutTimer = new System.Timers.Timer(this._request.TimeoutSeconds * 1000)
             {
                 AutoReset = false,
                 Enabled = false
@@ -149,33 +144,33 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private async Task Execute()
         {
-            var language = this.SandboxCompileRequest.Compiler.Language;
-            var compiler = this.SandboxCompileRequest.Compiler.CompilerEntry;
+            var language = this._request.Compiler.Language;
+            var compiler = this._request.Compiler.CompilerEntry;
 
             var commandLine = new List<string>
             {
                 "sh", "./script.sh", compiler, $"{language}.source", $"{language}.input",
-                this.SandboxCompileRequest.Compiler.Interpreter ? string.Empty : $"{language}.out.o",
-                this.SandboxCompileRequest.Compiler.AdditionalArguments,
-                this.SandboxCompileRequest.Compiler.StandardOutputFile,
-                this.SandboxCompileRequest.Compiler.StandardErrorFile
+                this._request.Compiler.Interpreter ? string.Empty : $"{language}.out.o",
+                this._request.Compiler.AdditionalArguments,
+                this._request.Compiler.StandardOutputFile,
+                this._request.Compiler.StandardErrorFile
             };
 
             // The working directory just be in a unix based absolute format otherwise its not
             // going to work as expected and thus needs to be converted to ensure that it is in
             // that format.
-            var workingDirectory = ConvertPathToUnix(this.SandboxCompileRequest.Path);
+            var workingDirectory = ConvertPathToUnix(this._request.Path);
 
             var container = await this._dockerClient.Containers.CreateContainerAsync(new CreateContainerParameters
             {
                 WorkingDir = "/input",
-                Image = this.SandboxCompileRequest.Compiler.VirtualMachineName,
+                Image = this._request.Compiler.VirtualMachineName,
                 NetworkDisabled = true,
                 Entrypoint = commandLine,
                 HostConfig = new HostConfig
                 {
                     Binds = new List<string> {$"{workingDirectory}:/input"},
-                    Memory = this.SandboxCompileRequest.MemoryConstraint * 1000000,
+                    Memory = this._request.MemoryConstraint * 1000000,
                     AutoRemove = true
                 }
             });
@@ -198,28 +193,28 @@ namespace Compile.Me.Worker.Service
             // Create the temporary directory that will be used for storing the source code, standard input and then
             // the location in which the compiler will write the standard output and the standard error output.
             // After the data is written and returned, the location will be deleted.
-            Directory.CreateDirectory(this.SandboxCompileRequest.Path);
+            Directory.CreateDirectory(this._request.Path);
 
-            await using (var sourceFile = new StreamWriter(Path.Join(this.SandboxCompileRequest.Path,
-                $"{this.SandboxCompileRequest.Compiler.Language}.source")))
+            await using (var sourceFile = new StreamWriter(Path.Join(this._request.Path,
+                $"{this._request.Compiler.Language}.source")))
             {
-                for (var i = 0; i < this.SandboxCompileRequest.SourceCode.Count; i++)
+                for (var i = 0; i < this._request.SourceCode.Count; i++)
                 {
-                    await sourceFile.WriteAsync(this.SandboxCompileRequest.SourceCode[i]);
+                    await sourceFile.WriteAsync(this._request.SourceCode[i]);
 
-                    if (i != this.SandboxCompileRequest.SourceCode.Count - 1)
+                    if (i != this._request.SourceCode.Count - 1)
                         await sourceFile.WriteAsync(Environment.NewLine);
                 }
             }
 
-            await using (var stdinDataFile = new StreamWriter(Path.Join(this.SandboxCompileRequest.Path,
-                $"{this.SandboxCompileRequest.Compiler.Language}.input")))
+            await using (var stdinDataFile = new StreamWriter(Path.Join(this._request.Path,
+                $"{this._request.Compiler.Language}.input")))
             {
-                for (var i = 0; i < this.SandboxCompileRequest.StdinData.Count; i++)
+                for (var i = 0; i < this._request.StdinData.Count; i++)
                 {
-                    await stdinDataFile.WriteAsync(this.SandboxCompileRequest.StdinData[i]);
+                    await stdinDataFile.WriteAsync(this._request.StdinData[i]);
 
-                    if (i != this.SandboxCompileRequest.StdinData.Count - 1)
+                    if (i != this._request.StdinData.Count - 1)
                         await stdinDataFile.WriteAsync(Environment.NewLine);
                 }
             }
@@ -229,16 +224,19 @@ namespace Compile.Me.Worker.Service
             // cases later on.
             foreach (var filePath in new List<string>
             {
-                Path.Join(this.SandboxCompileRequest.Path, this.SandboxCompileRequest.Compiler.StandardOutputFile),
-                Path.Join(this.SandboxCompileRequest.Path, this.SandboxCompileRequest.Compiler.StandardErrorFile)
+                Path.Join(this._request.Path, this._request.Compiler.StandardOutputFile),
+                Path.Join(this._request.Path, this._request.Compiler.StandardErrorFile)
             })
             {
                 await File.Create(filePath).DisposeAsync();
             }
 
-            // Finally copy in the script file that will be executed to execute the program.
-            File.Copy(Path.Join(Directory.GetCurrentDirectory(), "/source/script.sh"),
-                Path.Join(this.SandboxCompileRequest.Path, "script.sh"));
+            if (!File.Exists(Path.Join(this._request.Path, "script.sh")))
+            {
+                // Finally copy in the script file that will be executed to execute the program.
+                File.Copy(Path.Join(Directory.GetCurrentDirectory(), "/source/script.sh"),
+                    Path.Join(this._request.Path, "script.sh"));
+            }
         }
 
         /// <summary>
@@ -250,41 +248,36 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private void Cleanup()
         {
-            Trace.Assert(!string.IsNullOrWhiteSpace(this.SandboxCompileRequest?.Path));
+            Trace.Assert(!string.IsNullOrWhiteSpace(this._request?.Path));
 
             // Remove the temporary directory and all its contents since at this point they should all be fully
             // read and ready to return from the completed request.
-            Directory.Delete(this.SandboxCompileRequest?.Path, true);
+            Directory.Delete(this._request?.Path, true);
         }
 
         /// <summary>
         /// Loads the response of the sandbox execution, the standard output.
         /// </summary>
         /// <returns>The standard output of the sandbox.</returns>
-        private async Task<IReadOnlyList<string>> GetSandboxStandardOutput()
+        private IReadOnlyList<string> GetSandboxStandardOutput()
         {
-            var path = Path.Join(this.SandboxCompileRequest.Path,
-                this.SandboxCompileRequest.Compiler.StandardOutputFile);
+            var path = Path.Join(this._request.Path, this._request.Compiler.StandardOutputFile);
 
             // If the file does not exist, no output is returned.
             if (!File.Exists(path)) return new string[] { };
+            const int maxStandardOutRead = 50;
 
-            // Read up to 50 lines.
-            var maxStandardOutRead = 50;
+            var lines = File.ReadLines(path);
+            // ReSharper disable once PossibleMultipleEnumeration
+            var listedLines = lines.Take(maxStandardOutRead).ToList();
 
-            var lines = new List<string>();
-
-            using var openFile = new StreamReader(path);
-
-            for (var i = 0; i < maxStandardOutRead; i++)
+            if (listedLines.Count() == maxStandardOutRead && !listedLines.Last().StartsWith("*-COMPILE::EOF-*"))
             {
-                var line = await openFile.ReadLineAsync();
-                if (line == null) break;
-
-                lines.Add(line);
+                // ReSharper disable once PossibleMultipleEnumeration
+                listedLines.Add(lines.Last());
             }
 
-            return lines;
+            return listedLines;
         }
 
 
@@ -292,71 +285,48 @@ namespace Compile.Me.Worker.Service
         /// Loads the response of the sandbox error execution, the standard error output.
         /// </summary>
         /// <returns>The standard error output of the sandbox.</returns>
-        private async Task<IReadOnlyList<string>> GetLoadSandboxStandardErrorOutput()
+        private IReadOnlyList<string> GetLoadSandboxStandardErrorOutput()
         {
-            var path = Path.Join(this.SandboxCompileRequest.Path,
-                this.SandboxCompileRequest.Compiler.StandardErrorFile);
+            var path = Path.Join(this._request.Path,
+                this._request.Compiler.StandardErrorFile);
 
-
-            // If the file does not exist, no output is returned.
-            if (!File.Exists(path)) return new string[] { };
-
-            // Read up to 50 lines.
-            const int maxStandardOutRead = 50;
-
-            var lines = new List<string>();
-
-            using var openFile = new StreamReader(path);
-
-            for (var i = 0; i < maxStandardOutRead; i++)
-            {
-                var line = await openFile.ReadLineAsync();
-
-                // if we have met the end of the file before we have actually
-                // hit our max limit, break;
-                if (line == null) break;
-
-                lines.Add(line);
-            }
-
-            return lines;
+            return File.ReadLines(path).Take(50).ToList();
         }
 
 
         /// <summary>
         /// Get the response of the sandbox, can only be called once in removed state.
         /// </summary>
-        /// <returns></returns>
-        public async Task<SandboxCompileResponse> GetResponse()
+        public SandboxCompileResponse GetResponse()
         {
             Trace.Assert(this.Status != ContainerStatus.Removed, "Sandbox response cannot be returned if not removed.");
 
             try
             {
                 // Start  in a failed state, and update as and when it changes.
-                this.SandboxCompileResponse.Result = CompilerResult.Failed;
-                this.SandboxCompileResponse.Status = SandboxResponseStatus.Finished;
+                var compilerResult = CompilerResult.Failed;
+                var sandboxStatus = SandboxResponseStatus.Finished;
 
                 if (this._sandboxStatus.ExceededMemoryLimit || this._sandboxStatus.ExceededTimeoutLimit)
                 {
-                    this.SandboxCompileResponse.Status = this._sandboxStatus.ExceededMemoryLimit
+                    sandboxStatus = this._sandboxStatus.ExceededMemoryLimit
                         ? SandboxResponseStatus.MemoryConstraintExceeded
                         : SandboxResponseStatus.TimeLimitExceeded;
 
-                    return this.SandboxCompileResponse;
+                    return new SandboxCompileResponse(new List<string>(), new List<string>(),
+                        compilerResult, sandboxStatus);
                 }
 
-                this.SandboxCompileResponse.StandardErrorOutput = await this.GetLoadSandboxStandardErrorOutput();
+                var errorOutput = this.GetLoadSandboxStandardErrorOutput();
 
                 // If error exists, then don't bother loading the standard output.
-                if (this.SandboxCompileResponse.StandardErrorOutput != null &&
-                    this.SandboxCompileResponse.StandardErrorOutput.Any())
-                    return this.SandboxCompileResponse;
+                if (errorOutput != null && errorOutput.Any())
+                    return new SandboxCompileResponse(new List<string>(), errorOutput, compilerResult, sandboxStatus);
 
-                this.SandboxCompileResponse.StandardOutput = await this.GetSandboxStandardOutput();
+                var standardOutput = this.GetSandboxStandardOutput();
+                compilerResult = CompilerResult.Succeeded;
 
-                this.SandboxCompileResponse.Result = CompilerResult.Succeeded;
-                return this.SandboxCompileResponse;
+                return new SandboxCompileResponse(standardOutput, errorOutput, compilerResult, sandboxStatus);
             }
             finally
             {

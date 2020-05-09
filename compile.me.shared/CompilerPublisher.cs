@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using compile.me.shared.Modals.SourceCompile;
+using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
 using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;
 using Newtonsoft.Json;
@@ -69,6 +70,15 @@ namespace Compile.Me.Shared
         /// </summary>
         /// <param name="request">The request that would be compiled.</param>
         public async Task PublishSingleTestCompileSourceRequest(CompileTestSourceRequest request)
+        {
+            await this._producer.PublishAsync("compiling", JsonConvert.SerializeObject(request));
+        }
+
+        /// <summary>
+        /// Publishes a request to compile and execute the code with support of multiple test cases.
+        /// </summary>
+        /// <param name="request">The request that would be compiled.</param>
+        public async Task PublishMultipleTestCompileSourceRequest(CompileMultipleTestsSourceRequest request)
         {
             await this._producer.PublishAsync("compiling", JsonConvert.SerializeObject(request));
         }

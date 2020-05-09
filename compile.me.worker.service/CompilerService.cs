@@ -15,6 +15,7 @@ using Compile.Me.Shared.Types;
 using Compile.Me.Worker.Service.Events;
 using Compile.Me.Worker.Service.Types;
 using Compile.Me.Worker.Service.Types.Compile;
+using Compile.Me.Worker.Service.Types.MultipleTests;
 using Compile.Me.Worker.Service.Types.SingleTest;
 using Docker.DotNet;
 using Docker.DotNet.Models;
@@ -106,7 +107,7 @@ namespace Compile.Me.Worker.Service
                 request.SourceCode, request.StandardInputData, compiler);
 
             var sandbox = new CompileSandbox(this._logger, this._dockerClient, sandboxCreationRequest);
-            this._executingSandboxes.Add(sandbox);
+            this.AddSandbox(sandbox);
 
             sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
 
@@ -126,7 +127,7 @@ namespace Compile.Me.Worker.Service
                 request.SourceCode, compiler, request.TestCase);
 
             var sandbox = new SingleTestSandbox(this._logger, this._dockerClient, sandboxCreationRequest);
-            this._executingSandboxes.Add(sandbox);
+            this.AddSandbox(sandbox);
 
             sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
 
@@ -140,10 +141,20 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="request">The request that will contain the compile details.</param>
         /// <param name="compiler">The compiler being used for the process.</param>
-        internal Task HandleMultipleCompileTestSandboxRequest(MultipleCompileTestsSourceRequest request,
+        internal async Task HandleMultipleCompileTestSandboxRequest(CompileMultipleTestsSourceRequest request,
             Compiler compiler)
         {
-            throw new NotImplementedException();
+            var sandboxCreationRequest = new SandboxMultipleTestCreationRequest(request.Id, request.TimeoutSeconds,
+                request.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/",
+                request.SourceCode, compiler, request.TestCases);
+
+            this._logger.LogInformation($"starting multiple test case execution for: " +
+                                        $"{request.Id}, tests: {request.TestCases.Count}");
+
+            var multipleWrapper = new MultipleTestSandboxWrapper(this._logger, this._dockerClient,
+                this, sandboxCreationRequest);
+
+            await multipleWrapper.Start();
         }
 
         /// <summary>
@@ -153,7 +164,7 @@ namespace Compile.Me.Worker.Service
         /// <param name="request">The request that will contain the compile details.</param>
         /// <param name="compiler">The compiler being used for the process.</param>
         /// <returns></returns>
-        internal Task HandleMultipleParallelCompileTestSandboxRequest(MultipleCompileTestsSourceRequest request,
+        internal Task HandleMultipleParallelCompileTestSandboxRequest(CompileMultipleTestsSourceRequest request,
             Compiler compiler)
         {
             throw new NotImplementedException();
@@ -167,7 +178,8 @@ namespace Compile.Me.Worker.Service
         /// <param name="message">The message from the docker service.</param>
         private void OnDockerSystemMessage(JSONMessage message)
         {
-            var relatedSandbox = this._executingSandboxes.FirstOrDefault(e => e.ContainerId == message.ID);
+            var relatedSandbox = this.GetSandboxByContainerId(message.ID);
+
 
             // Add the docker event message,  this will trigger updates related to the status change and thus
             // firing out events that the container has completed and requires being removed. All following 
@@ -207,25 +219,25 @@ namespace Compile.Me.Worker.Service
         /// <param name="containerId">The id of the container being handled.</param>
         private async Task HandleSandboxComplete(string containerId)
         {
-            var sandbox = this._executingSandboxes.First(e => e.ContainerId == containerId);
+            var sandbox = this.GetSandboxByContainerId(containerId);
 
             sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
-            this._executingSandboxes.Remove(sandbox);
+            this.RemoveSandbox(sandbox);
 
             if (sandbox is SingleTestSandbox singleTestSandbox)
             {
-                var response = await singleTestSandbox.GetResponse();
-                var compileResponse = new CompileTestSourceResponse(singleTestSandbox.RequestId, response.Result,
-                    response.Status, response.TestCaseResult);
+                var testResponse = singleTestSandbox.GetResponse();
+                var response = new CompileTestSourceResponse(singleTestSandbox.RequestId, testResponse.CompilerResult,
+                    testResponse.SandboxStatus, testResponse.TestCaseResult);
 
-                this._logger.LogInformation($"single test: {JsonConvert.SerializeObject(compileResponse)}");
-                await this._publisher.PublishSingleTestCompileSourceResponse(compileResponse);
+                this._logger.LogInformation($"single test: {JsonConvert.SerializeObject(response)}");
+                await this._publisher.PublishSingleTestCompileSourceResponse(response);
             }
             else
             {
-                var response = await sandbox.GetResponse();
-                var compileResponse = new CompileSourceResponse(sandbox.RequestId, response.Result,
-                    response.StandardOutput, response.StandardErrorOutput, response.Status);
+                var response = sandbox.GetResponse();
+                var compileResponse = new CompileSourceResponse(sandbox.RequestId, response.CompilerResult,
+                    response.StandardOutput, response.StandardErrorOutput, response.SandboxStatus);
 
                 this._logger.LogInformation($"compile: {JsonConvert.SerializeObject(compileResponse)}");
                 await this._publisher.PublishCompileSourceResponse(compileResponse);
@@ -261,6 +273,26 @@ namespace Compile.Me.Worker.Service
         {
             return Task.CompletedTask;
         }
+
+        /// <summary>
+        /// Used to add sandboxes to the internal queue, allowing the boxes to get the updated events.
+        /// </summary>
+        /// <param name="sandbox">The sandbox being updated.</param>
+        public void AddSandbox(CompileSandbox sandbox) => this._executingSandboxes.Add(sandbox);
+
+
+        /// <summary>
+        /// Removes the sandbox from the internal queue.
+        /// </summary>
+        /// <param name="sandbox">The sandbox being removed.</param>
+        public void RemoveSandbox(CompileSandbox sandbox) => this._executingSandboxes.Remove(sandbox);
+
+        /// <summary>
+        /// Gets a given sandbox by the container id.
+        /// </summary>
+        /// <param name="id">The id of the container.</param>
+        public CompileSandbox GetSandboxByContainerId(string id) =>
+            this._executingSandboxes.FirstOrDefault(e => e.ContainerId == id);
 
         #endregion
 
@@ -350,13 +382,13 @@ namespace Compile.Me.Worker.Service
                 }
                 case CompileRequestType.MultipleTests:
                 {
-                    var multi = JsonConvert.DeserializeObject<MultipleCompileTestsSourceRequest>(stringMessage);
+                    var multi = JsonConvert.DeserializeObject<CompileMultipleTestsSourceRequest>(stringMessage);
                     compilingTask = this._compileService.HandleMultipleCompileTestSandboxRequest(multi, compiler);
                     break;
                 }
                 case CompileRequestType.ParallelMultipleTests:
                 {
-                    var multiParallel = JsonConvert.DeserializeObject<MultipleCompileTestsSourceRequest>(stringMessage);
+                    var multiParallel = JsonConvert.DeserializeObject<CompileMultipleTestsSourceRequest>(stringMessage);
                     compilingTask = this._compileService.HandleMultipleParallelCompileTestSandboxRequest(multiParallel,
                         compiler);
                     break;

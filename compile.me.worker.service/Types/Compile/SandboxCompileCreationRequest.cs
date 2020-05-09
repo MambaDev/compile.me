@@ -28,9 +28,5 @@ namespace Compile.Me.Worker.Service.Types.Compile
         {
             this.StdinData = stdinData;
         }
-
-        public SandboxCompileCreationRequest()
-        {
-        }
     }
 }

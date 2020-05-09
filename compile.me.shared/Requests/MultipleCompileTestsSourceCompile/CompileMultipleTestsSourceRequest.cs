@@ -5,7 +5,7 @@ using Newtonsoft.Json;
 
 namespace compile.me.shared.Requests.MultipleCompileTestsSourceCompile
 {
-    public class MultipleCompileTestsSourceRequest : CompileRequestBase
+    public class CompileMultipleTestsSourceRequest : CompileRequestBase
     {
         /// <summary>
         /// The single test case for the compile request.
@@ -22,14 +22,14 @@ namespace compile.me.shared.Requests.MultipleCompileTestsSourceCompile
         /// <param name="sourceCode">The source code being used.</param>
         /// <param name="compilerName">The name of the compiler being used.</param>
         /// <param name="testCases">The single test case used for the execution.</param>
-        public MultipleCompileTestsSourceRequest(Guid id, uint timeoutSeconds, uint memoryConstraint,
+        public CompileMultipleTestsSourceRequest(Guid id, uint timeoutSeconds, uint memoryConstraint,
             IReadOnlyList<string> sourceCode, string compilerName, IReadOnlyList<CompilerTestCase> testCases) :
             base(id, CompileRequestType.MultipleTests, timeoutSeconds, memoryConstraint, sourceCode, compilerName)
         {
             this.TestCases = testCases;
         }
 
-        public MultipleCompileTestsSourceRequest()
+        public CompileMultipleTestsSourceRequest()
         {
         }
     }
