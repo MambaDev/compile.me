@@ -100,5 +100,15 @@ namespace Compile.Me.Shared
         {
             await this._producer.PublishAsync("compiled", JsonConvert.SerializeObject(response));
         }
+
+
+        /// <summary>
+        /// Publishes a response to a multiple test compiled and tested response.
+        /// </summary>
+        /// <param name="response">The response that has been compiled.</param>
+        public async Task PublishMultipleTestCompileSourceResponse(CompileMultipleTestsSourceResponse response)
+        {
+            await this._producer.PublishAsync("compiled", JsonConvert.SerializeObject(response));
+        }
     }
 }

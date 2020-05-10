@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
 using Newtonsoft.Json;
 
@@ -11,17 +12,20 @@ namespace compile.me.shared.Requests.MultipleCompileTestsSourceCompile
         /// The result of the executed tests cases.
         /// </summary>
         [JsonProperty("test_case_results")]
-        public IReadOnlyList<(CompilerTestCaseResult result, SandboxResponseStatus status)> TestCaseResults
-        {
-            get;
-            set;
-        }
+        public IReadOnlyList<CompileTestSourceResponse> Results { get; set; }
 
-        public CompileMultipleTestsSourceResponse(Guid id, CompilerResult result,
-            IReadOnlyList<(CompilerTestCaseResult result, SandboxResponseStatus status)> testCaseResults)
+        /// <summary>
+        /// The given status of the sandbox.
+        /// </summary>
+        [JsonProperty("status")]
+        public SandboxResponseStatus Status { get; set; }
+
+        public CompileMultipleTestsSourceResponse(Guid id, CompilerResult result, SandboxResponseStatus status,
+            IReadOnlyList<CompileTestSourceResponse> results)
             : base(id, result)
         {
-            this.TestCaseResults = testCaseResults;
+            this.Results = results;
+            this.Status = status;
         }
 
         public CompileMultipleTestsSourceResponse()

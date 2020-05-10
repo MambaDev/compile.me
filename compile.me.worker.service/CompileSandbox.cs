@@ -68,8 +68,8 @@ namespace Compile.Me.Worker.Service
                 // Update the local status event and trigger the update event.
                 // if and only if the updated status is new and does not match
                 // the already existing status.
-                if (this._sandboxStatus.ContainerStatus != value) this.RaiseStatusChangeEvent(value);
                 this._sandboxStatus.ContainerStatus = value;
+                if (this._sandboxStatus.ContainerStatus != value) this.RaiseStatusChangeEvent(value);
             }
         }
 
@@ -287,8 +287,7 @@ namespace Compile.Me.Worker.Service
         /// <returns>The standard error output of the sandbox.</returns>
         private IReadOnlyList<string> GetLoadSandboxStandardErrorOutput()
         {
-            var path = Path.Join(this._request.Path,
-                this._request.Compiler.StandardErrorFile);
+            var path = Path.Join(this._request.Path, this._request.Compiler.StandardErrorFile);
 
             return File.ReadLines(path).Take(50).ToList();
         }
@@ -299,7 +298,7 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         public SandboxCompileResponse GetResponse()
         {
-            Trace.Assert(this.Status != ContainerStatus.Removed, "Sandbox response cannot be returned if not removed.");
+            Trace.Assert(this.Status == ContainerStatus.Removed, "Sandbox response cannot be returned if not removed.");
 
             try
             {
@@ -430,6 +429,8 @@ namespace Compile.Me.Worker.Service
             // event, and we don't want the worker service knowing we are "removed" until we
             // have loaded the data ready for finishing.
             this.Status = ContainerStatus.Removed;
+
+            this.RaiseCompletedChangeEvent();
         }
 
         #endregion
@@ -483,8 +484,30 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="status">The updated status.</param>
         private void RaiseStatusChangeEvent(ContainerStatus status) =>
-            this.StatusChangeEvent?.Invoke(this,
-                new SandboxStatusChangeEventArgs(this.ContainerId, status));
+            this.StatusChangeEvent?.Invoke(this, new SandboxStatusChangeEventArgs(this.ContainerId, status));
+
+
+        /// <summary>
+        /// The delegate event handler for the completed event.
+        /// </summary>
+        /// <param name="sender">The sending sandbox</param>
+        /// <param name="args"></param>
+        public delegate void CompletedEventHandler(object sender, CompileSandboxCompletionEventArgs args);
+
+        /// <summary>
+        ///  The process has completed.
+        /// </summary>
+        public event CompletedEventHandler CompletedEvent;
+
+        /// <summary>
+        /// Raised when the multiple test case wrapper has completed all its tests or a test failed.
+        /// </summary>
+        private void RaiseCompletedChangeEvent() => this.CompletedEvent?.Invoke(this,
+            new CompileSandboxCompletionEventArgs()
+            {
+                Id = this._request.Id, ContainerId = this.ContainerId,
+                Response = this.GetResponse()
+            });
 
         #endregion
 

@@ -57,7 +57,7 @@ namespace Compile.Me.Api.Controllers
 
             await this._compilerPublisher.PublishMultipleTestCompileSourceRequest(
                 new CompileMultipleTestsSourceRequest(Guid.NewGuid(), 3, 128, request.Source,
-                    request.Language, testCases));
+                    request.Language, testCases, false));
 
             return this.Ok();
         }

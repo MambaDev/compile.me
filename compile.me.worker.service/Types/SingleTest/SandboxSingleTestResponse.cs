@@ -5,6 +5,7 @@ using Compile.Me.Worker.Service.Types.Compile;
 namespace Compile.Me.Worker.Service.Types.SingleTest
 {
     public class SandboxSingleTestResponse : SandboxResponseBase
+
     {
         /// <summary>
         /// The resulting test case of the execution.

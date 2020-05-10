@@ -110,6 +110,7 @@ namespace Compile.Me.Worker.Service
             this.AddSandbox(sandbox);
 
             sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
+            sandbox.CompletedEvent += this.OnCompileSandboxCompletionEvent;
 
             await sandbox.Run();
         }
@@ -130,6 +131,7 @@ namespace Compile.Me.Worker.Service
             this.AddSandbox(sandbox);
 
             sandbox.StatusChangeEvent += this.OnStatusChangeEvent;
+            sandbox.CompletedEvent += this.OnSingleTestCompileSandboxCompletionEvent;
 
             await sandbox.Run();
         }
@@ -146,13 +148,15 @@ namespace Compile.Me.Worker.Service
         {
             var sandboxCreationRequest = new SandboxMultipleTestCreationRequest(request.Id, request.TimeoutSeconds,
                 request.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/",
-                request.SourceCode, compiler, request.TestCases);
+                request.SourceCode, compiler, request.TestCases, request.RunAll);
 
             this._logger.LogInformation($"starting multiple test case execution for: " +
                                         $"{request.Id}, tests: {request.TestCases.Count}");
 
             var multipleWrapper = new MultipleTestSandboxWrapper(this._logger, this._dockerClient,
                 this, sandboxCreationRequest);
+
+            multipleWrapper.CompletedEvent += this.OnMultipleSandboxCompletionEvent;
 
             await multipleWrapper.Start();
         }
@@ -198,8 +202,58 @@ namespace Compile.Me.Worker.Service
         /// <param name="args">The arguments of the id and the status</param>
         private void OnStatusChangeEvent(object sender, SandboxStatusChangeEventArgs args)
         {
-            if (args.Status == Shared.Types.ContainerStatus.Removed)
-                this.HandleSandboxComplete(args.Id).FireAndForgetSafeAsync(this.HandleSandboxCompleteFailedException);
+        }
+
+        private void OnCompileSandboxCompletionEvent(object sender, CompileSandboxCompletionEventArgs args)
+        {
+            var sandbox = (CompileSandbox) sender;
+            this.RemoveSandbox(sandbox);
+
+            sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
+            sandbox.CompletedEvent -= this.OnCompileSandboxCompletionEvent;
+
+            var compileResponse = new CompileSourceResponse(args.Id, args.Response.CompilerResult,
+                args.Response.StandardOutput, args.Response.StandardErrorOutput, args.Response.SandboxStatus);
+
+            this._logger.LogInformation($"compile: {JsonConvert.SerializeObject(compileResponse)}");
+
+            this._publisher.PublishCompileSourceResponse(compileResponse)
+                .FireAndForgetSafeAsync(this.HandleSandboxCompleteFailedException);
+        }
+
+        private void OnSingleTestCompileSandboxCompletionEvent(object sender,
+            CompileSingleTestSandboxCompletionEventArgs args)
+        {
+            var sandbox = (SingleTestSandbox) sender;
+            this.RemoveSandbox(sandbox);
+
+            sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
+            sandbox.CompletedEvent -= this.OnSingleTestCompileSandboxCompletionEvent;
+
+            var response = new CompileTestSourceResponse(args.Id, args.Response.CompilerResult,
+                args.Response.SandboxStatus, args.Response.TestCaseResult);
+
+            this._logger.LogInformation($"single test: {JsonConvert.SerializeObject(response)}");
+            this._publisher.PublishSingleTestCompileSourceResponse(response)
+                .FireAndForgetSafeAsync(this.HandleSandboxCompleteFailedException);
+        }
+
+        private void OnMultipleSandboxCompletionEvent(object sender, MultipleSandboxCompletionEventArgs args)
+        {
+            var wrapper = (MultipleTestSandboxWrapper) sender;
+            wrapper.CompletedEvent -= this.OnMultipleSandboxCompletionEvent;
+            
+            // TODO: Track these and remove them once complete.
+            
+            var testCaseResult = args.Response.TestCases.Select(e =>
+                    new CompileTestSourceResponse(args.Id, e.CompilerResult, e.SandboxStatus, e.TestCaseResult))
+                .ToList();
+            
+            var response = new CompileMultipleTestsSourceResponse(args.Id, args.Response.CompilerResult,
+                args.Response.SandboxStatus,testCaseResult);
+
+            this._logger.LogInformation($"multiple test: {JsonConvert.SerializeObject(response)}");
+            this._publisher.PublishMultipleTestCompileSourceResponse(response);
         }
 
 
@@ -210,38 +264,6 @@ namespace Compile.Me.Worker.Service
         private void HandleSandboxCompleteFailedException(Exception exception)
         {
             this._logger.LogError($"error completing sandbox failed, error={exception.Message}");
-        }
-
-        /// <summary>
-        /// Handles the case in which the container is complete, e.g getting the response and pushing it back
-        /// onto the queue and ensuring that the container and its information is removed from memory.
-        /// </summary>
-        /// <param name="containerId">The id of the container being handled.</param>
-        private async Task HandleSandboxComplete(string containerId)
-        {
-            var sandbox = this.GetSandboxByContainerId(containerId);
-
-            sandbox.StatusChangeEvent -= this.OnStatusChangeEvent;
-            this.RemoveSandbox(sandbox);
-
-            if (sandbox is SingleTestSandbox singleTestSandbox)
-            {
-                var testResponse = singleTestSandbox.GetResponse();
-                var response = new CompileTestSourceResponse(singleTestSandbox.RequestId, testResponse.CompilerResult,
-                    testResponse.SandboxStatus, testResponse.TestCaseResult);
-
-                this._logger.LogInformation($"single test: {JsonConvert.SerializeObject(response)}");
-                await this._publisher.PublishSingleTestCompileSourceResponse(response);
-            }
-            else
-            {
-                var response = sandbox.GetResponse();
-                var compileResponse = new CompileSourceResponse(sandbox.RequestId, response.CompilerResult,
-                    response.StandardOutput, response.StandardErrorOutput, response.SandboxStatus);
-
-                this._logger.LogInformation($"compile: {JsonConvert.SerializeObject(compileResponse)}");
-                await this._publisher.PublishCompileSourceResponse(compileResponse);
-            }
         }
 
         #region IHost Start/Stop

@@ -41,7 +41,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The resulting sandbox results for the given sandboxes.
         /// </summary>
-        private List<CompilerTestCaseResult> _executedTestResults = new List<CompilerTestCaseResult>();
+        private List<SandboxSingleTestResponse> _executedTestResults = new List<SandboxSingleTestResponse>();
 
         /// <summary>
         /// The current executing test position, starting at base -1 since the next case and has next case
@@ -98,9 +98,14 @@ namespace Compile.Me.Worker.Service
             }
         }
 
-        public SandboxMultipleTestCreationResponse GetResponse()
+        /// <summary>
+        /// Gets the response of the given multiple sandbox execution.
+        /// </summary>
+        private SandboxMultipleTestCreationResponse GetResponse()
         {
-            throw new NotImplementedException();
+            // TODO: get result and status based on the sandboxes and if we are run all mode.
+            return new SandboxMultipleTestCreationResponse(CompilerResult.Succeeded, SandboxResponseStatus.Finished,
+                this._executedTestResults);
         }
 
         /// <summary>
@@ -121,9 +126,11 @@ namespace Compile.Me.Worker.Service
                     test));
 
             sandbox.StatusChangeEvent += this.HandleSandboxStatusEvent;
+            sandbox.CompletedEvent += this.SandboxOnCompletedEvent;
 
             return sandbox;
         }
+
 
         /// <summary>
         /// Determines if there is another sandbox in the queue or not.
@@ -136,24 +143,38 @@ namespace Compile.Me.Worker.Service
         }
 
         /// <summary>
+        /// Returns true if we can continue with the next sandbox, e.g the last sandbox request did actually
+        /// pass its related tests or we are in run all run all mode.
+        /// </summary>
+        /// <returns></returns>
+        private bool CanContinue()
+        {
+            return this._request.RunAll ||
+                   this._executedTestResults.Last().TestCaseResult.Result == CompilerTestResult.Passed;
+        }
+
+        /// <summary>
         /// Handles the status event from the sandbox.
         /// </summary>
         private void HandleSandboxStatusEvent(object sender, SandboxStatusChangeEventArgs args)
         {
             if (args.Status != ContainerStatus.Removed) return;
+        }
 
+        private void SandboxOnCompletedEvent(object sender, CompileSingleTestSandboxCompletionEventArgs args)
+        {
             // If the sandbox has been removed and thus completed, then lets go and handle the completion
             // for this selected test, process onto the following test or completing overall.
-            var sandbox = (SingleTestSandbox) this._compilerService.GetSandboxByContainerId(args.Id);
-
-            this.HandleSandboxCompletion(sandbox)
+            var sandbox = (SingleTestSandbox) this._compilerService.GetSandboxByContainerId(args.ContainerId);
+            this.HandleSandboxCompletion(sandbox, args.Response)
                 .FireAndForgetSafeAsync(this.HandleSandboxCompletionFailedExecution);
         }
 
         /// <summary>
         /// Handles the case in which the sandbox has completed.
         /// </summary>
-        private async Task HandleSandboxCompletion(SingleTestSandbox completedSandbox)
+        private async Task HandleSandboxCompletion(SingleTestSandbox completedSandbox,
+            SandboxSingleTestResponse response)
         {
             Trace.Assert(completedSandbox != null, "completedSandbox must be defined to be handled.");
 
@@ -161,8 +182,8 @@ namespace Compile.Me.Worker.Service
             // that we don't want to clean up the path since this will be done when we are fully
             // complete. Since we dont know about the result as of yet and it could of failed and
             // thus want to cleanup.
-            var response = completedSandbox.GetResponse();
-            this._executedTestResults.Add(response.TestCaseResult);
+            this._executedTestResults.Add(response);
+            this._compilerService.RemoveSandbox(completedSandbox);
 
             this._logger.LogInformation(
                 $"multiple test (single): {JsonConvert.SerializeObject(response.TestCaseResult)}");
@@ -170,7 +191,7 @@ namespace Compile.Me.Worker.Service
             // If we have another test to be executed, go get the next sandbox and start the process.
             // Ensuring that we are waiting between at least  100 milliseconds between each execution.
             // just to not buffer out the event stream.
-            if (this.HashNext())
+            if (this.HashNext() && this.CanContinue())
             {
                 var sandbox = this.Next();
                 this._compilerService.AddSandbox(sandbox);
@@ -214,7 +235,7 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="sender">The sending sandbox</param>
         /// <param name="args"></param>
-        public delegate void CompletedEventHandler(object sender, object args);
+        public delegate void CompletedEventHandler(object sender, MultipleSandboxCompletionEventArgs args);
 
         /// <summary>
         ///  The process has completed.
@@ -224,8 +245,8 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// Raised when the multiple test case wrapper has completed all its tests or a test failed.
         /// </summary>
-        private void RaiseCompletedChangeEvent() =>
-            this.CompletedEvent?.Invoke(this, null);
+        private void RaiseCompletedChangeEvent() => this.CompletedEvent?.Invoke(this,
+            new MultipleSandboxCompletionEventArgs {Id = this._request.Id, Response = this.GetResponse()});
 
         #endregion
     }
