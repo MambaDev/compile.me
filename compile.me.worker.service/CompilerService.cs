@@ -147,8 +147,8 @@ namespace Compile.Me.Worker.Service
             Compiler compiler)
         {
             var sandboxCreationRequest = new SandboxMultipleTestCreationRequest(request.Id, request.TimeoutSeconds,
-                request.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/",
-                request.SourceCode, compiler, request.TestCases, request.RunAll);
+                request.MemoryConstraint, $"./temp/{compiler.Language}/{Guid.NewGuid():N}/", request.SourceCode,
+                compiler, request.TestCases, request.RunAll, request.RunAllParallel);
 
             this._logger.LogInformation($"starting multiple test case execution for: " +
                                         $"{request.Id}, tests: {request.TestCases.Count}");
@@ -242,15 +242,15 @@ namespace Compile.Me.Worker.Service
         {
             var wrapper = (MultipleTestSandboxWrapper) sender;
             wrapper.CompletedEvent -= this.OnMultipleSandboxCompletionEvent;
-            
+
             // TODO: Track these and remove them once complete.
-            
+
             var testCaseResult = args.Response.TestCases.Select(e =>
                     new CompileTestSourceResponse(args.Id, e.CompilerResult, e.SandboxStatus, e.TestCaseResult))
                 .ToList();
-            
+
             var response = new CompileMultipleTestsSourceResponse(args.Id, args.Response.CompilerResult,
-                args.Response.SandboxStatus,testCaseResult);
+                args.Response.SandboxStatus, testCaseResult);
 
             this._logger.LogInformation($"multiple test: {JsonConvert.SerializeObject(response)}");
             this._publisher.PublishMultipleTestCompileSourceResponse(response);

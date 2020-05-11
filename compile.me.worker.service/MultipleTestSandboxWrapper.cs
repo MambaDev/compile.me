@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
 using Compile.Me.Worker.Service.Events;
+using Compile.Me.Worker.Service.Types;
+using Compile.Me.Worker.Service.Types.Compile;
 using Compile.Me.Worker.Service.Types.MultipleTests;
 using Compile.Me.Worker.Service.Types.SingleTest;
 using Docker.DotNet;
@@ -72,7 +74,7 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         public async Task Start()
         {
-            if (this.HashNext())
+            if (this.HashNext() && !this._request.RunAllParallel)
             {
                 // Get the next sandbox, configured and setup ready with its following test case.
                 var sandbox = this.Next();
@@ -91,9 +93,33 @@ namespace Compile.Me.Worker.Service
                     this.HandleSandboxFailedStartExecution(e);
                 }
             }
+            else if (this.HashNext() && this._request.RunAllParallel)
+            {
+                while (this.HashNext())
+                {
+                    var sandbox = this.Next();
+                    this._compilerService.AddSandbox(sandbox);
+
+                    try
+                    {
+                        // Run the sandbox.
+                        this._logger.LogWarning($"'{this._request.Id}': executing sandbox in parallel.");
+                        await sandbox.Run();
+
+                        // Ensure to wait a tiny amount to stop the stream poole from being overloaded.
+                        Thread.Sleep(50);
+                    }
+                    catch (Exception e)
+                    {
+                        // ignored
+                    }
+                }
+            }
+
             else
             {
-                this._logger.LogWarning($"Multiple test request: '{this._request.Id}' did not provide any test cases");
+                this._logger.LogWarning(
+                    $"Multiple test request: '{this._request.Id}' did not provide any test cases");
                 this.RaiseCompletedChangeEvent();
             }
         }
@@ -103,8 +129,39 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         private SandboxMultipleTestCreationResponse GetResponse()
         {
-            // TODO: get result and status based on the sandboxes and if we are run all mode.
-            return new SandboxMultipleTestCreationResponse(CompilerResult.Succeeded, SandboxResponseStatus.Finished,
+            // If all tests have been completed, then return out, otherwise we are going to fulfil the complete
+            // request count by marking them as not ran.
+            if (this._executedTestResults.Count != this._request.TestCases.Count)
+            {
+                // fill out the remaining not executed test-cases as not ran.
+                for (var i = this._executedTestResults.Count - 1; i < this._request.TestCases.Count - 1; i++)
+                {
+                    var test = this._request.TestCases[i];
+
+                    var response = new SandboxSingleTestResponse(CompilerResult.Failed,
+                        SandboxResponseStatus.Finished,
+                        new CompilerTestCaseResult(test.Id, CompilerTestResult.NotRan, new List<string>(),
+                            new List<string>()));
+
+                    this._executedTestResults.Add(response);
+                }
+            }
+
+            var anyTestsFailed = this._executedTestResults.Any(e =>
+                e.TestCaseResult.Result == CompilerTestResult.Failed || e.CompilerResult == CompilerResult.Failed);
+
+            // get the last executed status that was not a test that did not ran. e.g what was the last failed results
+            // reason and for one that did not also pass.
+            var lastExecutedResult =
+                this._executedTestResults.LastOrDefault(e =>
+                    e.TestCaseResult.Result != CompilerTestResult.NotRan &&
+                    e.CompilerResult != CompilerResult.Succeeded &&
+                    e.SandboxStatus != SandboxResponseStatus.Finished);
+
+            var compiledResult = anyTestsFailed ? CompilerResult.Failed : CompilerResult.Succeeded;
+            var compiledStatus = lastExecutedResult?.SandboxStatus ?? SandboxResponseStatus.Finished;
+
+            return new SandboxMultipleTestCreationResponse(compiledResult, compiledStatus,
                 this._executedTestResults);
         }
 
@@ -138,7 +195,8 @@ namespace Compile.Me.Worker.Service
         /// <returns></returns>
         private bool HashNext()
         {
-            Trace.Assert(this._request.TestCases != null, "multiple test process cannot execute without tests set.");
+            Trace.Assert(this._request.TestCases != null,
+                "multiple test process cannot execute without tests set.");
             return this._request.TestCases.Count > this._currentTestPosition + 1;
         }
 
@@ -149,7 +207,7 @@ namespace Compile.Me.Worker.Service
         /// <returns></returns>
         private bool CanContinue()
         {
-            return this._request.RunAll ||
+            return this._request.RunAll || this._request.RunAllParallel ||
                    this._executedTestResults.Last().TestCaseResult.Result == CompilerTestResult.Passed;
         }
 
@@ -191,7 +249,10 @@ namespace Compile.Me.Worker.Service
             // If we have another test to be executed, go get the next sandbox and start the process.
             // Ensuring that we are waiting between at least  100 milliseconds between each execution.
             // just to not buffer out the event stream.
-            if (this.HashNext() && this.CanContinue())
+            // 
+            // If ran in parallel, all containers have already been created, and thus this should not 
+            // create anymore.
+            if (this.HashNext() && this.CanContinue() && !this._request.RunAllParallel)
             {
                 var sandbox = this.Next();
                 this._compilerService.AddSandbox(sandbox);
@@ -207,7 +268,7 @@ namespace Compile.Me.Worker.Service
                     this.HandleSandboxFailedStartExecution(e);
                 }
             }
-            else
+            else if ((!this._request.RunAllParallel) || (!this.HashNext() && this._executedTestResults.Count == this._request.TestCases.Count))
             {
                 // If we don't have any more sandboxes, then we must have completed all the tests and thus
                 // can handle the completion of the entire process. Raising the event allows the parent
@@ -222,13 +283,15 @@ namespace Compile.Me.Worker.Service
         /// Handles the case in which the sandboxes could not be started / ran.
         /// </summary>
         /// <param name="exception">The exception that was caused.</param>
-        private void HandleSandboxFailedStartExecution(Exception exception) => throw new NotImplementedException();
+        private void HandleSandboxFailedStartExecution(Exception exception) =>
+            this._logger.LogError($"Failed to start sandbox, error={exception}");
 
         /// <summary>
         /// Handles the case in which the sandbox failed the completion process.
         /// </summary>
         /// <param name="exception">The execution that was caused.</param>
-        private void HandleSandboxCompletionFailedExecution(Exception exception) => throw new NotImplementedException();
+        private void HandleSandboxCompletionFailedExecution(Exception exception) =>
+            this._logger.LogError($"Failed to complete sandbox, error={exception}");
 
         /// <summary>
         /// The delegate event handler for the completed event.
