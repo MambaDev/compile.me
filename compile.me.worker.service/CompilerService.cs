@@ -6,14 +6,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
-using compile.me.shared.Modals.SourceCompile;
 using compile.me.shared.Requests;
 using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
 using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;
 using Compile.Me.Shared.Types;
 using Compile.Me.Worker.Service.Events;
-using Compile.Me.Worker.Service.Types;
 using Compile.Me.Worker.Service.Types.Compile;
 using Compile.Me.Worker.Service.Types.MultipleTests;
 using Compile.Me.Worker.Service.Types.SingleTest;
@@ -23,11 +21,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-using Newtonsoft.Json.Linq;
 using PureNSQSharp;
-using CompileSourceResponse = compile.me.shared.Modals.SourceCompile.CompileSourceResponse;
+using CompileSourceResponse = compile.me.shared.Requests.SourceCompile.CompileSourceResponse;
 using Config = PureNSQSharp.Config;
+using Message = Docker.DotNet.Models.Message;
 
 namespace Compile.Me.Worker.Service
 {
@@ -92,7 +89,7 @@ namespace Compile.Me.Worker.Service
             this._configuration = configuration.GetSection("configuration").GetSection("compiler")
                 .Get<CompileServiceConfiguration>();
 
-            this._dockerClient = new DockerClientConfiguration(new Uri(this._configuration.Docker)).CreateClient();
+            this._dockerClient = new DockerClientConfiguration().CreateClient();
         }
 
         /// <summary>
@@ -162,25 +159,12 @@ namespace Compile.Me.Worker.Service
         }
 
         /// <summary>
-        /// Creates multiple sandboxes that will be used to execute multiple test cases. Completing once all
-        /// tests have completed, regardless of failing or not.
-        /// </summary>
-        /// <param name="request">The request that will contain the compile details.</param>
-        /// <param name="compiler">The compiler being used for the process.</param>
-        /// <returns></returns>
-        internal Task HandleMultipleParallelCompileTestSandboxRequest(CompileMultipleTestsSourceRequest request,
-            Compiler compiler)
-        {
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
         /// Handle incoming messages from the docker stream, this will be used to ensure we know when the
         /// container has started and when the container has stopped. And thus allows us to understand
         /// if and when we should be killing the process.
         /// </summary>
         /// <param name="message">The message from the docker service.</param>
-        private void OnDockerSystemMessage(JSONMessage message)
+        private void OnDockerSystemMessage(Message message)
         {
             var relatedSandbox = this.GetSandboxByContainerId(message.ID);
 
@@ -274,11 +258,8 @@ namespace Compile.Me.Worker.Service
         /// <param name="cancellationToken">The cancellation token that would be used to stop the application.</param>
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            Task.Run(async () =>
-            {
-                await this._dockerClient.System.MonitorEventsAsync(new ContainerEventsParameters(),
-                    new Progress<JSONMessage>(this.OnDockerSystemMessage), cancellationToken);
-            }, cancellationToken);
+            this._dockerClient.System.MonitorEventsAsync(new ContainerEventsParameters(),
+                new Progress<Message>(this.OnDockerSystemMessage), cancellationToken);
 
             this._hostApplicationLifetime.ApplicationStarted.Register(this.OnStart);
             this._hostApplicationLifetime.ApplicationStopping.Register(this.OnStopping);
@@ -351,7 +332,7 @@ namespace Compile.Me.Worker.Service
         #endregion
     }
 
-    public class CompileQueueMessageHandler : IHandler
+    internal class CompileQueueMessageHandler : IHandler
     {
         /// <summary>
         /// The logger
@@ -368,7 +349,7 @@ namespace Compile.Me.Worker.Service
         /// </summary>
         /// <param name="logger">The logger.</param>
         /// <param name="compileService">The sentiment service.</param>
-        public CompileQueueMessageHandler(ILogger<CompilerService> logger, CompilerService compileService)
+        internal CompileQueueMessageHandler(ILogger<CompilerService> logger, CompilerService compileService)
         {
             this._logger = logger;
             this._compileService = compileService;
@@ -406,13 +387,6 @@ namespace Compile.Me.Worker.Service
                 {
                     var multi = JsonConvert.DeserializeObject<CompileMultipleTestsSourceRequest>(stringMessage);
                     compilingTask = this._compileService.HandleMultipleCompileTestSandboxRequest(multi, compiler);
-                    break;
-                }
-                case CompileRequestType.ParallelMultipleTests:
-                {
-                    var multiParallel = JsonConvert.DeserializeObject<CompileMultipleTestsSourceRequest>(stringMessage);
-                    compilingTask = this._compileService.HandleMultipleParallelCompileTestSandboxRequest(multiParallel,
-                        compiler);
                     break;
                 }
                 default:

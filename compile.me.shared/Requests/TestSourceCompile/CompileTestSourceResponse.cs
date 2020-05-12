@@ -27,7 +27,7 @@ namespace compile.me.shared.Requests.TestSourceCompile
         /// <param name="status">The status of the sandbox after finishing.</param>
         /// <param name="testCaseResult">The result of the test.</param>
         public CompileTestSourceResponse(Guid id, CompilerResult result, SandboxResponseStatus status,
-            CompilerTestCaseResult testCaseResult) : base(id, result)
+            CompilerTestCaseResult testCaseResult) : base(id, CompileRequestType.SingleTest, result)
         {
             this.TestCaseResult = testCaseResult;
             this.Status = status;

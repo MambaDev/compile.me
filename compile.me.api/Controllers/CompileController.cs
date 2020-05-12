@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Compile.Me.Shared;
-using compile.me.shared.Modals.SourceCompile;
 using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
 using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;

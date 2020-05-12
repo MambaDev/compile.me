@@ -22,7 +22,7 @@ namespace compile.me.shared.Requests.MultipleCompileTestsSourceCompile
 
         public CompileMultipleTestsSourceResponse(Guid id, CompilerResult result, SandboxResponseStatus status,
             IReadOnlyList<CompileTestSourceResponse> results)
-            : base(id, result)
+            : base(id, CompileRequestType.MultipleTests, result)
         {
             this.Results = results;
             this.Status = status;

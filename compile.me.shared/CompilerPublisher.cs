@@ -1,5 +1,4 @@
 ﻿using System.Threading.Tasks;
-using compile.me.shared.Modals.SourceCompile;
 using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
 using compile.me.shared.Requests.SourceCompile;
 using compile.me.shared.Requests.TestSourceCompile;

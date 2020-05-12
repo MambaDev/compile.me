@@ -18,13 +18,6 @@
         /// output to the provided results, and then repeating the process again for the following
         /// tests. If any fail, the following are not executed.
         /// </summary>
-        MultipleTests = 3,
-
-        /// <summary>
-        /// A multiple test run that all run at the same time, executing the code against a range of tests. Comparing the
-        /// output to the provided results. If any fail, the following are still executed, (since they are all running
-        /// in parallel).
-        /// </summary>
-        ParallelMultipleTests = 4,
+        MultipleTests = 3
     }
 }

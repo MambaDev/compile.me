@@ -38,7 +38,7 @@ namespace Compile.Me.Worker.Service
         /// <summary>
         /// The related docker system event messages that are related to this sandbox/container.
         /// </summary>
-        private readonly List<JSONMessage> _containerEventmessages = new List<JSONMessage>();
+        private readonly List<Message> _containerEventMessages = new List<Message>();
 
         /// <summary>
         /// The time out timer, this will be triggered when the container starts.
@@ -516,10 +516,10 @@ namespace Compile.Me.Worker.Service
         /// This will be used to also update its current status.
         /// </summary>
         /// <param name="message">The message that was triggered within the docker container.</param>
-        public void AddDockerEventMessage(JSONMessage message)
+        public void AddDockerEventMessage(Message message)
         {
             this.UpdateStatusFromDockerEventMessageStatus(message.Status);
-            this._containerEventmessages.Add(message);
+            this._containerEventMessages.Add(message);
         }
 
         /// <summary>
