@@ -15,7 +15,13 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\compile.me.shared\compile.me.shared.csproj" />
+      <None Update="source\script.sh">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\external\docker.dotnet\src\Docker.DotNet\Docker.DotNet.csproj" />
     </ItemGroup>
 
 

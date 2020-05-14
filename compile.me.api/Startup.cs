@@ -1,18 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Compile.Me.Shared;
+using compile.me.api.Services;
+using compile.me.api.Services.Compiler;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
-namespace Compile.Me.Api
+namespace compile.me.api
 {
     public class Startup
     {
@@ -63,7 +57,10 @@ namespace Compile.Me.Api
 
 
             var publisher = root.GetSection("compiler").GetValue<string>("publisher");
+           
             services.AddSingleton(new CompilerPublisher(publisher));
+            services.AddHostedService<WorkerManagementService>();
+            services.AddHostedService<CompilerService>();
         }
 
         /// <summary>

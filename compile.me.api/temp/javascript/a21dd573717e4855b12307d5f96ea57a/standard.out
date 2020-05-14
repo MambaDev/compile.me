@@ -1,0 +1,2 @@
+hello: bob!
+*-COMPILE::EOF-* 0

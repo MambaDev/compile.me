@@ -1,5 +1,4 @@
 using System;
-using Compile.Me.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;

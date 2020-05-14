@@ -1,16 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Compile.Me.Shared;
-using compile.me.shared.Requests.MultipleCompileTestsSourceCompile;
-using compile.me.shared.Requests.SourceCompile;
-using compile.me.shared.Requests.TestSourceCompile;
-using Compile.Me.Shared.Types;
+using compile.me.api.Types;
+using compile.me.api.Types.Requests;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Server.HttpSys;
 using Microsoft.Extensions.Logging;
 
-namespace Compile.Me.Api.Controllers
+namespace compile.me.api.Controllers
 {
     public class CompileRequest
     {
@@ -43,17 +39,17 @@ namespace Compile.Me.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CompileSource([FromBody] CompileRequest request)
         {
-            // await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(Guid.NewGuid(),
-            //     3, 128, request.Source, request.Input, request.Language));
+        //     await this._compilerPublisher.PublishCompileSourceRequest(new CompileSourceRequest(Guid.NewGuid(),
+        //         3, 128, request.Source, request.Input.FirstOrDefault(), request.Language));
 
-
+            //
             var testCases = new List<CompilerTestCase>();
-
+            
             for (var i = 0; i < request.Tests.Count; i++)
             {
                 testCases.Add(new CompilerTestCase(Guid.NewGuid(), request.Input[i], request.Tests[i]));
             }
-
+            
             await this._compilerPublisher.PublishMultipleTestCompileSourceRequest(
                 new CompileMultipleTestsSourceRequest(Guid.NewGuid(), 3, 128, request.Source,
                     request.Language, testCases, false, false));
